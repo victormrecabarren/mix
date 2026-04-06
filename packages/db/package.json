@@ -1,0 +1,12 @@
+{
+  "name": "@mix/db",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@mix/tsconfig": "workspace:*",
+    "typescript": "^5.6.0"
+  }
+}

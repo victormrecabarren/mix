@@ -1,0 +1,9 @@
+{
+  "name": "@mix/prettier-config",
+  "version": "0.0.1",
+  "private": true,
+  "main": "index.js",
+  "peerDependencies": {
+    "prettier": "^3.0.0"
+  }
+}

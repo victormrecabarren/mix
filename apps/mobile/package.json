@@ -1,0 +1,35 @@
+{
+  "name": "@mix/mobile",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "dev:ios": "expo run:ios",
+    "dev:android": "expo run:android",
+    "build": "expo export",
+    "lint": "eslint src --ext .ts,.tsx",
+    "type-check": "tsc --noEmit",
+    "prebuild": "expo prebuild --clean"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.1.0",
+    "@supabase/supabase-js": "^2.49.4",
+    "expo": "~54.0.33",
+    "expo-constants": "~17.1.6",
+    "expo-crypto": "~14.1.5",
+    "expo-linking": "~7.1.5",
+    "expo-router": "~4.0.20",
+    "expo-secure-store": "~14.2.0",
+    "expo-status-bar": "~3.0.9",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-url-polyfill": "^2.0.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@mix/eslint-config": "workspace:*",
+    "@mix/tsconfig": "workspace:*",
+    "@types/react": "~19.1.0",
+    "typescript": "~5.9.2"
+  }
+}

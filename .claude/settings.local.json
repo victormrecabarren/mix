@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(pnpm --version)",
+      "Bash(xcode-select -p)",
+      "Bash(xcodebuild -version)",
+      "Bash(xcrun simctl:*)",
+      "Bash(sudo xcodebuild:*)",
+      "Bash(pnpm install:*)",
+      "Bash(npx create-expo-app@latest mobile --template blank-typescript)",
+      "Bash(npx create-expo-app@latest mobile-temp --template blank-typescript)",
+      "Bash(npx create-expo-app@latest apps/mobile-temp --template blank-typescript)",
+      "Bash(cp:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
