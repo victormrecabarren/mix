@@ -54,6 +54,9 @@ importers:
       '@babel/core':
         specifier: ^7.25.2
         version: 7.29.0
+      '@mix/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@mix/eslint-config':
         specifier: workspace:*
         version: link:../../packages/config/eslint-config

@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@mix/db": "workspace:*",
     "@mix/eslint-config": "workspace:*",
     "@mix/tsconfig": "workspace:*",
     "@types/react": "~19.1.0",
