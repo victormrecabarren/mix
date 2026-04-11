@@ -15,9 +15,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.mix.app",
+      "bundleIdentifier": "com.victorrecabarren.mix",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "mix uses the microphone for audio playback routing."
+        "NSMicrophoneUsageDescription": "mix uses the microphone for audio playback routing.",
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
@@ -26,11 +27,12 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.mix.app"
+      "package": "com.victorrecabarren.mix"
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

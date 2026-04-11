@@ -11,8 +11,8 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
-      <Tabs.Screen name="league" options={{ title: 'League' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen name="league" options={{ title: 'Play' }} />
+      <Tabs.Screen name="profile" options={{ title: 'Now Playing' }} />
     </Tabs>
   );
 }

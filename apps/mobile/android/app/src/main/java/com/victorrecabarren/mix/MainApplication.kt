@@ -1,4 +1,4 @@
-package com.mix.app
+package com.victorrecabarren.mix
 
 import android.app.Application
 import android.content.res.Configuration
