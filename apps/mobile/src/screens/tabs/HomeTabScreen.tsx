@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useSession } from '@/context/SessionContext';
 import { supabase } from '@/lib/supabase';
 
@@ -40,9 +40,7 @@ export function HomeTabScreen() {
     setLoadingLeagues(false);
   }, []);
 
-  useEffect(() => {
-    fetchLeagues();
-  }, [fetchLeagues]);
+  useFocusEffect(useCallback(() => { fetchLeagues(); }, [fetchLeagues]));
 
   return (
     <ScrollView contentContainerStyle={styles.root} style={{ backgroundColor: '#000' }}>
@@ -61,7 +59,7 @@ export function HomeTabScreen() {
           <TouchableOpacity
             style={styles.newBtn}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            onPress={() => router.push('/create-league' as any)}
+            onPress={() => router.push('/(tabs)/(stack)/create-league' as any)}
           >
             <Text style={styles.newBtnText}>+ New</Text>
           </TouchableOpacity>
@@ -74,7 +72,7 @@ export function HomeTabScreen() {
             <Text style={styles.emptyText}>No leagues yet.</Text>
             <TouchableOpacity
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              onPress={() => router.push('/create-league' as any)}
+              onPress={() => router.push('/(tabs)/(stack)/create-league' as any)}
             >
               <Text style={styles.emptyLink}>Create your first league →</Text>
             </TouchableOpacity>
@@ -85,7 +83,7 @@ export function HomeTabScreen() {
               key={league.id}
               style={styles.leagueCard}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              onPress={() => router.push({ pathname: '/league/[id]' as any, params: { id: league.id } })}
+              onPress={() => router.push({ pathname: '/(tabs)/(stack)/league/[id]' as any, params: { id: league.id } })}
               activeOpacity={0.7}
             >
               <Text style={styles.leagueName}>{league.name}</Text>

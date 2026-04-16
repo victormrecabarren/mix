@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { SwipeSheet } from '@/components/SwipeSheet';
 
 type JoinInfo = {
   seasonId: string;
@@ -11,29 +12,37 @@ type JoinInfo = {
   alreadyMember: boolean;
 };
 
+type JoinInviteLookup = {
+  season_id: string;
+  season_name: string;
+  league_id: string;
+  league_name: string;
+};
+
 export function JoinScreen({ token }: { token: string }) {
   const router = useRouter();
   const [info, setInfo] = useState<JoinInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
 
-  const fetchInfo = useCallback(async () => {
-    const { data: season, error } = await supabase
-      .from('seasons')
-      .select('id, name, league_id')
-      .eq('invite_token', token)
-      .single();
+  const handleClose = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/(tabs)');
+  }, [router]);
 
-    if (error || !season) {
+  const fetchInfo = useCallback(async () => {
+    const { data, error } = await supabase
+      .rpc('get_join_invite_info' as never, { invite_token: token } as never)
+      .single();
+    const inviteInfo = data as JoinInviteLookup | null;
+
+    if (error || !inviteInfo) {
       setLoading(false);
       return;
     }
-
-    const { data: league } = await supabase
-      .from('leagues')
-      .select('id, name')
-      .eq('id', season.league_id)
-      .single();
 
     const { data: { user } } = await supabase.auth.getUser();
     let alreadyMember = false;
@@ -41,17 +50,17 @@ export function JoinScreen({ token }: { token: string }) {
       const { data: membership } = await supabase
         .from('league_members')
         .select('user_id')
-        .eq('league_id', season.league_id)
+        .eq('league_id', inviteInfo.league_id)
         .eq('user_id', user.id)
         .maybeSingle();
       alreadyMember = membership !== null;
     }
 
     setInfo({
-      seasonId: season.id,
-      seasonName: season.name,
-      leagueId: season.league_id,
-      leagueName: league?.name ?? 'Unknown League',
+      seasonId: inviteInfo.season_id,
+      seasonName: inviteInfo.season_name,
+      leagueId: inviteInfo.league_id,
+      leagueName: inviteInfo.league_name,
       alreadyMember,
     });
     setLoading(false);
@@ -75,7 +84,7 @@ export function JoinScreen({ token }: { token: string }) {
       if (error) throw new Error(error.message);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      router.replace({ pathname: '/league/[id]' as any, params: { id: info.leagueId } });
+      router.replace({ pathname: '/(tabs)/(stack)/league/[id]' as any, params: { id: info.leagueId } });
     } catch (err) {
       Alert.alert('Failed to join', err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -83,95 +92,131 @@ export function JoinScreen({ token }: { token: string }) {
     }
   };
 
+  let content: React.ReactNode;
+
   if (loading) {
-    return (
-      <View style={styles.centered}>
+    content = (
+      <View style={styles.stateBlock}>
         <ActivityIndicator color="#555" />
       </View>
     );
-  }
-
-  if (!info) {
-    return (
-      <View style={styles.centered}>
+  } else if (!info) {
+    content = (
+      <View style={styles.stateBlock}>
         <Text style={styles.errorTitle}>Invalid invite link</Text>
         <Text style={styles.errorBody}>This link may have expired or is incorrect.</Text>
       </View>
     );
-  }
-
-  if (info.alreadyMember) {
-    return (
-      <View style={styles.centered}>
+  } else if (info.alreadyMember) {
+    content = (
+      <View style={styles.stateBlock}>
         <Text style={styles.errorTitle}>Already a member</Text>
         <Text style={styles.errorBody}>You're already in {info.leagueName}.</Text>
         <TouchableOpacity
           style={styles.btn}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onPress={() => router.replace({ pathname: '/league/[id]' as any, params: { id: info.leagueId } })}
+          onPress={() => router.replace({ pathname: '/(tabs)/(stack)/league/[id]' as any, params: { id: info.leagueId } })}
         >
           <Text style={styles.btnText}>Go to League</Text>
         </TouchableOpacity>
       </View>
     );
+  } else {
+    content = (
+      <>
+        <View style={styles.card}>
+          <Text style={styles.label}>YOU'RE INVITED TO</Text>
+          <Text style={styles.leagueName}>{info.leagueName}</Text>
+          <Text style={styles.seasonName}>{info.seasonName}</Text>
+        </View>
+
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={[styles.btn, styles.btnPrimary, joining && styles.btnDisabled]}
+            onPress={() => handleJoin('participant')}
+            disabled={joining}
+          >
+            {joining
+              ? <ActivityIndicator color="#000" />
+              : <Text style={[styles.btnText, styles.btnTextPrimary]}>Join as Participant</Text>
+            }
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.btn, styles.btnSecondary, joining && styles.btnDisabled]}
+            onPress={() => handleJoin('spectator')}
+            disabled={joining}
+          >
+            <Text style={[styles.btnText, styles.btnTextSecondary]}>Join as Spectator</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.hint}>
+          Participants submit tracks and vote. Spectators can watch and listen but not compete.
+        </Text>
+      </>
+    );
   }
 
   return (
-    <View style={styles.root}>
-      <View style={styles.card}>
-        <Text style={styles.label}>YOU'RE INVITED TO</Text>
-        <Text style={styles.leagueName}>{info.leagueName}</Text>
-        <Text style={styles.seasonName}>{info.seasonName}</Text>
-      </View>
-
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.btn, styles.btnPrimary, joining && styles.btnDisabled]}
-          onPress={() => handleJoin('participant')}
-          disabled={joining}
-        >
-          {joining
-            ? <ActivityIndicator color="#000" />
-            : <Text style={[styles.btnText, styles.btnTextPrimary]}>Join as Participant</Text>
-          }
+    <SwipeSheet
+      visible
+      onRequestClose={handleClose}
+      dismissThreshold={80}
+      dismissVelocityThreshold={0.5}
+      closeDuration={300}
+      backgroundColor="#050505"
+      backdropColor="rgba(0,0,0,0.45)"
+      sheetStyle={styles.sheet}
+      renderHeaderRight={({ dismiss }) => (
+        <TouchableOpacity style={styles.closeBtnInline} onPress={dismiss}>
+          <Text style={styles.closeBtnText}>Close</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.btn, styles.btnSecondary, joining && styles.btnDisabled]}
-          onPress={() => handleJoin('spectator')}
-          disabled={joining}
-        >
-          <Text style={[styles.btnText, styles.btnTextSecondary]}>Join as Spectator</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.hint}>
-        Participants submit tracks and vote. Spectators can watch and listen but not compete.
-      </Text>
-    </View>
+      )}
+    >
+      {() => (
+        <>
+          <View style={styles.content}>
+            {content}
+          </View>
+        </>
+      )}
+    </SwipeSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  centered: {
-    flex: 1,
-    backgroundColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-    gap: 12,
+  sheet: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: '#050505',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    borderColor: '#222',
+    overflow: 'hidden',
   },
-  errorTitle: { fontSize: 20, fontWeight: '800', color: '#fff', textAlign: 'center' },
-  errorBody: { fontSize: 14, color: '#555', textAlign: 'center' },
-
-  root: {
-    flex: 1,
-    backgroundColor: '#000',
-    padding: 32,
-    paddingTop: 80,
-    alignItems: 'center',
+  content: {
+    paddingHorizontal: 32,
+    paddingBottom: 36,
     gap: 32,
   },
+  stateBlock: {
+    minHeight: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  closeBtnInline: {
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
+  closeBtnText: { fontSize: 15, color: '#888', fontWeight: '600' },
+  errorTitle: { fontSize: 20, fontWeight: '800', color: '#fff', textAlign: 'center' },
+  errorBody: { fontSize: 14, color: '#555', textAlign: 'center' },
   card: {
     width: '100%',
     backgroundColor: '#111',

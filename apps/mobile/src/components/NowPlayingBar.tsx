@@ -3,7 +3,6 @@ import {
   Animated,
   Dimensions,
   Image,
-  Modal,
   PanResponder,
   StyleSheet,
   Text,
@@ -12,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlayback } from '@/playback/PlaybackContext';
+import { SwipeSheet } from '@/components/SwipeSheet';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -276,136 +276,62 @@ function NowPlayingModal({ visible, onClose }: { visible: boolean; onClose: () =
     pause, resume, seek, next, previous,
   } = usePlayback();
 
-  const translateY = useRef(new Animated.Value(SCREEN_H)).current;
-
-  // Slide in when opened
-  useEffect(() => {
-    if (visible) {
-      translateY.setValue(SCREEN_H);
-      Animated.spring(translateY, {
-        toValue: 0,
-        damping: 22,
-        stiffness: 200,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [visible, translateY]);
-
-  const dismiss = useCallback(() => {
-    Animated.timing(translateY, {
-      toValue: SCREEN_H,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => onClose());
-  }, [onClose, translateY]);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      // Claim in bubble phase when no child has taken the responder (Image, empty space).
-      // Buttons claim it first in their own bubble handler, so this never fires for them.
-      onStartShouldSetPanResponder: () => true,
-      onStartShouldSetPanResponderCapture: () => false,
-      // Also steal from children (e.g. TouchableOpacity) when a downward drag is detected.
-      onMoveShouldSetPanResponderCapture: (_, { dy, dx }) =>
-        dy > 8 && Math.abs(dy) > Math.abs(dx) * 1.5,
-      // Allow children to reclaim the responder for taps.
-      onPanResponderTerminationRequest: () => true,
-      onPanResponderMove: (_, { dy }) => {
-        if (dy > 0) translateY.setValue(dy);
-      },
-      onPanResponderRelease: (_, { dy, vy }) => {
-        if (dy > 80 || vy > 0.5) {
-          // Scale duration to velocity so a fast flick exits quickly.
-          // remaining distance ÷ velocity gives a natural feel; clamp to [120, 280]ms.
-          const remaining = SCREEN_H - dy;
-          const velocityBasedMs = vy > 0.1 ? (remaining / vy) : 280;
-          const duration = Math.min(280, Math.max(120, velocityBasedMs));
-          Animated.timing(translateY, {
-            toValue: SCREEN_H,
-            duration,
-            useNativeDriver: true,
-          }).start(() => onClose());
-        } else {
-          Animated.spring(translateY, {
-            toValue: 0,
-            damping: 30,
-            stiffness: 300,
-            useNativeDriver: true,
-          }).start();
-        }
-      },
-    }),
-  ).current;
-
   const hasTrack = currentIndex !== null;
   const hasPrevious = currentIndex !== null && currentIndex > 0;
   const hasNext = currentIndex !== null && currentIndex < playlist.length - 1;
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={dismiss}>
-      <Animated.View style={[modalStyles.sheet, { transform: [{ translateY }] }]} {...panResponder.panHandlers}>
-        {/* Drag handle + collapse button */}
-        <View style={[modalStyles.header, { paddingTop: insets.top + 12 }]}>
-          <View style={modalStyles.handle} />
-          <TouchableOpacity onPress={dismiss} style={modalStyles.collapseBtn} hitSlop={{ top: 12, bottom: 12, left: 24, right: 24 }}>
-            <Text style={modalStyles.collapseIcon}>⌄</Text>
-          </TouchableOpacity>
-        </View>
+    <SwipeSheet
+      visible={visible}
+      onRequestClose={onClose}
+      closeDuration={300}
+      dismissThreshold={80}
+      dismissVelocityThreshold={0.5}
+      backgroundColor="#000"
+      backdropColor="rgba(0,0,0,0.45)"
+      renderHeaderRight={({ dismiss }) => (
+        <TouchableOpacity onPress={dismiss} style={modalStyles.collapseBtn} hitSlop={{ top: 12, bottom: 12, left: 24, right: 24 }}>
+          <Text style={modalStyles.collapseIcon}>⌄</Text>
+        </TouchableOpacity>
+      )}
+    >
+      {() => (
+        <>
+          <View style={[modalStyles.content, { paddingBottom: insets.bottom + 24 }]}>
+            <Text style={modalStyles.heading}>Now Playing</Text>
 
-        {/* Player content */}
-        <View style={[modalStyles.content, { paddingBottom: insets.bottom + 24 }]}>
-          <Text style={modalStyles.heading}>Now Playing</Text>
+            <AlbumArtSwiper />
 
-          <AlbumArtSwiper />
+            <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
 
-          <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
-
-          <View style={modalStyles.controls}>
-            <ControlBtn label="⏮" onPress={previous} disabled={!hasPrevious} />
-            <ControlBtn
-              label={isPlaying ? '⏸' : '▶'}
-              onPress={isPlaying ? pause : resume}
-              disabled={!hasTrack}
-              large
-            />
-            <ControlBtn label="⏭" onPress={next} disabled={!hasNext} />
-          </View>
-
-          {hasTrack && (
-            <View style={modalStyles.votingPlaceholder}>
-              <Text style={modalStyles.votingLabel}>VOTING</Text>
-              <Text style={modalStyles.votingBody}>
-                Point allocation controls will appear here when this track is part of an active voting round.
-              </Text>
+            <View style={modalStyles.controls}>
+              <ControlBtn label="⏮" onPress={previous} disabled={!hasPrevious} />
+              <ControlBtn
+                label={isPlaying ? '⏸' : '▶'}
+                onPress={isPlaying ? pause : resume}
+                disabled={!hasTrack}
+                large
+              />
+              <ControlBtn label="⏭" onPress={next} disabled={!hasNext} />
             </View>
-          )}
-        </View>
-      </Animated.View>
-    </Modal>
+
+            {hasTrack && (
+              <View style={modalStyles.votingPlaceholder}>
+                <Text style={modalStyles.votingLabel}>VOTING</Text>
+                <Text style={modalStyles.votingBody}>
+                  Point allocation controls will appear here when this track is part of an active voting round.
+                </Text>
+              </View>
+            )}
+          </View>
+        </>
+      )}
+    </SwipeSheet>
   );
 }
 
 const modalStyles = StyleSheet.create({
-  sheet: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
-  },
-  header: {
-    alignItems: 'center',
-    paddingBottom: 8,
-  },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#444',
-    marginBottom: 12,
-  },
-  collapseBtn: {
-    position: 'absolute',
-    right: 20,
-    bottom: 8,
-  },
+  collapseBtn: { paddingVertical: 4, paddingHorizontal: 4 },
   collapseIcon: {
     fontSize: 28,
     color: '#888',

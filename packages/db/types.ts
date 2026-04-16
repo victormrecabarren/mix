@@ -639,6 +639,7 @@ export type Database = {
       rounds: {
         Row: {
           created_at: string
+          description: string
           id: string
           max_points_per_track: number | null
           points_per_round: number | null
@@ -651,6 +652,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          description?: string
           id?: string
           max_points_per_track?: number | null
           points_per_round?: number | null
@@ -663,6 +665,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          description?: string
           id?: string
           max_points_per_track?: number | null
           points_per_round?: number | null
@@ -739,6 +742,7 @@ export type Database = {
       submissions: {
         Row: {
           apple_music_track_id: string | null
+          comment: string | null
           created_at: string
           id: string
           playlist_position: number | null
@@ -757,6 +761,7 @@ export type Database = {
         }
         Insert: {
           apple_music_track_id?: string | null
+          comment?: string | null
           created_at?: string
           id?: string
           playlist_position?: number | null
@@ -775,6 +780,7 @@ export type Database = {
         }
         Update: {
           apple_music_track_id?: string | null
+          comment?: string | null
           created_at?: string
           id?: string
           playlist_position?: number | null
@@ -923,6 +929,15 @@ export type Database = {
     }
     Functions: {
       create_league: { Args: { league_name: string }; Returns: string }
+      get_join_invite_info: {
+        Args: { invite_token: string }
+        Returns: {
+          season_id: string
+          season_name: string
+          league_id: string
+          league_name: string
+        }[]
+      }
       my_league_ids: { Args: never; Returns: string[] }
     }
     Enums: {

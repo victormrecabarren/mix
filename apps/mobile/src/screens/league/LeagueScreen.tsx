@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ScrollView, View, Text, StyleSheet, TouchableOpacity,
-  Modal, TextInput, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Share,
+  ActivityIndicator, Share, Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 
 type League = { id: string; name: string; admin_user_id: string };
@@ -31,10 +31,6 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [modalVisible, setModalVisible] = useState(false);
-  const [seasonName, setSeasonName] = useState('');
-  const [creating, setCreating] = useState(false);
-
   const fetchData = useCallback(async () => {
     const [{ data: { user } }, { data: leagueData }, { data: seasonsData }, { data: membersData }] =
       await Promise.all([
@@ -44,7 +40,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
           .from('seasons')
           .select('id, name, season_number, status, invite_token')
           .eq('league_id', leagueId)
-          .order('season_number', { ascending: true }),
+          .order('season_number', { ascending: false }),
         supabase
           .from('league_members')
           .select('user_id, role, users(display_name)')
@@ -66,36 +62,27 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
     setLoading(false);
   }, [leagueId]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
   const isCommissioner = league?.admin_user_id === supabaseUserId;
 
-  const handleCreateSeason = async () => {
-    const name = seasonName.trim();
-    if (!name) return;
-    setCreating(true);
-    try {
-      const { count } = await supabase
-        .from('seasons')
-        .select('*', { count: 'exact', head: true })
-        .eq('league_id', leagueId);
+  const handleNewSeason = async () => {
+    // FE guard: check if any season still has live rounds
+    const { data: liveRounds } = await supabase
+      .from('rounds')
+      .select('id, seasons!inner(league_id)')
+      .gt('voting_deadline_at', new Date().toISOString())
+      .eq('seasons.league_id', leagueId);
 
-      const { error } = await supabase.from('seasons').insert({
-        league_id: leagueId,
-        name,
-        season_number: (count ?? 0) + 1,
-      });
-
-      if (error) throw new Error(error.message);
-      setSeasonName('');
-      setModalVisible(false);
-      await fetchData();
-    } catch (err) {
-      console.error('Create season error:', err);
-      Alert.alert('Failed to create season', err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setCreating(false);
+    if (liveRounds && liveRounds.length > 0) {
+      Alert.alert(
+        'Season in progress',
+        'You can only have one active season at a time. Wait for the current season to finish before creating a new one.',
+      );
+      return;
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    router.push({ pathname: '/(tabs)/(stack)/create-season' as any, params: { leagueId } });
   };
 
   if (loading) {
@@ -108,22 +95,14 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
 
   return (
     <ScrollView contentContainerStyle={styles.root} style={{ backgroundColor: '#000' }}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
-        {isCommissioner && <Text style={styles.commissionerBadge}>COMMISSIONER</Text>}
-      </View>
-
-      <Text style={styles.pageTitle}>{league.name}</Text>
+      {isCommissioner && <Text style={styles.commissionerBadge}>COMMISSIONER</Text>}
 
       {/* ── Seasons ── */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Seasons</Text>
           {isCommissioner && (
-            <TouchableOpacity style={styles.newBtn} onPress={() => setModalVisible(true)}>
+            <TouchableOpacity style={styles.newBtn} onPress={handleNewSeason}>
               <Text style={styles.newBtnText}>+ New</Text>
             </TouchableOpacity>
           )}
@@ -133,7 +112,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
           <View style={styles.empty}>
             <Text style={styles.emptyText}>No seasons yet.</Text>
             {isCommissioner && (
-              <TouchableOpacity onPress={() => setModalVisible(true)}>
+              <TouchableOpacity onPress={handleNewSeason}>
                 <Text style={styles.emptyLink}>Create the first season →</Text>
               </TouchableOpacity>
             )}
@@ -145,7 +124,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
               style={styles.seasonCard}
               activeOpacity={0.7}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              onPress={() => router.push({ pathname: '/season/[id]' as any, params: { id: season.id } })}
+              onPress={() => router.push({ pathname: '/(tabs)/(stack)/season/[id]' as any, params: { id: season.id, leagueId } })}
             >
               <View style={styles.seasonCardTop}>
                 <View>
@@ -192,37 +171,6 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
           </View>
         ))}
       </View>
-
-      {/* Create Season Modal */}
-      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
-        <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>New Season</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Season name (e.g. Spring 2026)"
-              placeholderTextColor="#555"
-              value={seasonName}
-              onChangeText={setSeasonName}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={handleCreateSeason}
-            />
-            <View style={styles.sheetActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setModalVisible(false); setSeasonName(''); }}>
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.createBtn, (!seasonName.trim() || creating) && styles.btnDisabled]}
-                onPress={handleCreateSeason}
-                disabled={!seasonName.trim() || creating}
-              >
-                {creating ? <ActivityIndicator color="#000" /> : <Text style={styles.createBtnText}>Create</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
     </ScrollView>
   );
 }
@@ -231,12 +179,9 @@ const styles = StyleSheet.create({
   centered: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
   mutedText: { color: '#555', fontSize: 15 },
 
-  root: { backgroundColor: '#000', padding: 24, paddingTop: 56, paddingBottom: 48, gap: 32 },
+  root: { backgroundColor: '#000', padding: 24, paddingBottom: 48, gap: 32 },
 
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  backText: { color: '#1DB954', fontSize: 15, fontWeight: '600' },
   commissionerBadge: { fontSize: 10, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
-  pageTitle: { fontSize: 28, fontWeight: '800', color: '#fff', marginTop: -16 },
 
   section: { gap: 12 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -267,15 +212,4 @@ const styles = StyleSheet.create({
   commBadge: { fontSize: 9, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
   roleBadge: { fontSize: 9, fontWeight: '700', color: '#555', letterSpacing: 1 },
   roleBadgeSpectator: { color: '#444' },
-
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#111', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, gap: 16, paddingBottom: 48 },
-  sheetTitle: { fontSize: 18, fontWeight: '800', color: '#fff' },
-  input: { backgroundColor: '#1a1a1a', borderRadius: 10, padding: 14, fontSize: 16, color: '#fff', borderWidth: 1, borderColor: '#333' },
-  sheetActions: { flexDirection: 'row', gap: 12 },
-  cancelBtn: { flex: 1, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#333', alignItems: 'center' },
-  cancelBtnText: { color: '#888', fontSize: 15, fontWeight: '600' },
-  createBtn: { flex: 1, padding: 14, borderRadius: 10, backgroundColor: '#1DB954', alignItems: 'center' },
-  btnDisabled: { opacity: 0.4 },
-  createBtnText: { color: '#000', fontSize: 15, fontWeight: '700' },
 });
