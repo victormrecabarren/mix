@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { SeasonScreen } from '@/screens/season/SeasonScreen';
 
 export default function SeasonPage() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, leagueId } = useLocalSearchParams<{ id: string; leagueId: string }>();
 
   if (!id) {
     return (
@@ -13,7 +13,7 @@ export default function SeasonPage() {
     );
   }
 
-  return <SeasonScreen seasonId={id} />;
+  return <SeasonScreen seasonId={id} leagueId={leagueId} />;
 }
 
 const styles = StyleSheet.create({
