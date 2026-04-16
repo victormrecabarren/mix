@@ -26,7 +26,7 @@ export interface SpotifyTokens {
 export interface SpotifyProfile {
   id: string;
   displayName: string;
-  email: string;
+  email?: string;
   imageUrl?: string;
 }
 
@@ -96,11 +96,11 @@ export async function loginWithSpotify(): Promise<SpotifyProfile> {
   });
 
   if (!tokenRes.ok) {
-    const err = await tokenRes.json();
+    const err = await tokenRes.json() as { error_description?: string };
     throw new Error(err.error_description ?? 'Token exchange failed');
   }
 
-  const tokenData = await tokenRes.json();
+  const tokenData = await tokenRes.json() as { access_token: string; refresh_token: string; expires_in: number };
   const tokens: SpotifyTokens = {
     accessToken: tokenData.access_token,
     refreshToken: tokenData.refresh_token,
@@ -135,10 +135,10 @@ export async function refreshSpotifyTokens(refreshToken: string): Promise<Spotif
     }).toString(),
   });
   if (!res.ok) {
-    const err = await res.json();
+    const err = await res.json() as { error_description?: string };
     throw new Error(err.error_description ?? 'Token refresh failed');
   }
-  const data = await res.json();
+  const data = await res.json() as { access_token: string; refresh_token?: string; expires_in: number };
   const tokens: SpotifyTokens = {
     accessToken: data.access_token,
     refreshToken: data.refresh_token ?? refreshToken,
@@ -186,7 +186,7 @@ async function fetchSpotifyProfile(accessToken: string): Promise<SpotifyProfile>
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error('Failed to fetch Spotify profile');
-  const data = await res.json();
+  const data = await res.json() as { id: string; display_name?: string; email?: string; images?: { url: string }[] };
   return {
     id: data.id,
     displayName: data.display_name ?? data.id,

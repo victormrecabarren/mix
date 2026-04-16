@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { usePlayback } from '@/playback/PlaybackContext';
+import { useSession } from '@/context/SessionContext';
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -147,6 +148,7 @@ export function ProfileTabScreen() {
     next,
     previous,
   } = usePlayback();
+  const { signOut } = useSession();
 
   const hasTrack = currentIndex !== null;
   const hasPrevious = currentIndex !== null && currentIndex > 0;
@@ -199,6 +201,10 @@ export function ProfileTabScreen() {
           </Text>
         </View>
       )}
+
+      <TouchableOpacity style={styles.signOutBtn} onPress={signOut}>
+        <Text style={styles.signOutLabel}>Sign Out</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -261,5 +267,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#555',
     lineHeight: 18,
+  },
+  signOutBtn: {
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  signOutLabel: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
 });

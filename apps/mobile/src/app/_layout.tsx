@@ -47,6 +47,7 @@ export default function RootLayout() {
             <Stack.Screen name="(auth)/index" />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="auth/callback" />
+            <Stack.Screen name="join/index" />
           </Stack>
         </AuthGate>
         </PlaybackProvider>

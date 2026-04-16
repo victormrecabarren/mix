@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import { loginWithSpotify } from '@/lib/spotifyAuth';
+import { loginWithSpotify, getValidAccessToken } from '@/lib/spotifyAuth';
+import { signInToSupabase } from '@/lib/supabaseAuth';
 import { useSession } from '@/context/SessionContext';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -14,6 +15,8 @@ export function AuthLoginScreen() {
     setLoading(true);
     try {
       await loginWithSpotify();
+      const token = await getValidAccessToken();
+      if (token) await signInToSupabase(token);
       await refresh();
     } catch (err) {
       Alert.alert('Login failed', err instanceof Error ? err.message : 'Something went wrong');
