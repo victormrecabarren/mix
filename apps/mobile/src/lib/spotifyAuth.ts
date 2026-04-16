@@ -119,8 +119,8 @@ export async function loginWithSpotify(): Promise<SpotifyProfile> {
   });
 
   if (!tokenRes.ok) {
-    const err = await tokenRes.json() as { error_description?: string };
-    throw new Error(err.error_description ?? 'Token exchange failed');
+    const err = await tokenRes.json() as { error?: string; error_description?: string };
+    throw new Error(`Token exchange failed (${tokenRes.status}): ${err.error_description ?? err.error ?? 'unknown'}`);
   }
 
   const tokenData = await tokenRes.json() as { access_token: string; refresh_token: string; expires_in: number };
@@ -209,7 +209,10 @@ async function fetchSpotifyProfile(accessToken: string): Promise<SpotifyProfile>
   const res = await fetch('https://api.spotify.com/v1/me', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw new Error('Failed to fetch Spotify profile');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
+    throw new Error(`Spotify /me failed (${res.status}): ${body?.error?.message ?? 'unknown'}`);
+  }
   const data = await res.json() as { id: string; display_name?: string; email?: string; images?: { url: string }[] };
   return {
     id: data.id,
