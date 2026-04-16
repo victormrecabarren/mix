@@ -1,13 +1,79 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
+  Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView,
+} from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import { loginWithSpotify, getValidAccessToken } from '@/lib/spotifyAuth';
+import { loginWithSpotify, getValidAccessToken, getClientId, saveClientId } from '@/lib/spotifyAuth';
 import { signInToSupabase } from '@/lib/supabaseAuth';
 import { useSession } from '@/context/SessionContext';
 
 WebBrowser.maybeCompleteAuthSession();
 
-export function AuthLoginScreen() {
+// ─── Step 1: Client ID setup ──────────────────────────────────────────────────
+
+function ClientIdSetup({ onSaved }: { onSaved: () => void }) {
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      await saveClientId(trimmed);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView contentContainerStyle={styles.root} keyboardShouldPersistTaps="handled">
+        <Text style={styles.title}>mix</Text>
+
+        <View style={styles.setupCard}>
+          <Text style={styles.setupHeading}>One-time setup</Text>
+          <Text style={styles.setupBody}>
+            This build requires your own Spotify Developer client ID.{'\n\n'}
+            1. Go to <Text style={styles.setupLink}>developer.spotify.com/dashboard</Text>{'\n'}
+            2. Create an app (any name){'\n'}
+            3. Add <Text style={styles.setupCode}>mix://auth/callback</Text> as a Redirect URI{'\n'}
+            4. Copy your Client ID and paste it below
+          </Text>
+
+          <TextInput
+            style={styles.clientIdInput}
+            placeholder="Paste Client ID here"
+            placeholderTextColor="#555"
+            value={value}
+            onChangeText={setValue}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <TouchableOpacity
+            style={[styles.button, (!value.trim() || saving) && styles.buttonBusy]}
+            onPress={handleSave}
+            disabled={!value.trim() || saving}
+          >
+            {saving
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.buttonLabel}>Save & Continue</Text>}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+// ─── Step 2: Spotify login ────────────────────────────────────────────────────
+
+function SpotifyLogin({ onReset }: { onReset: () => void }) {
   const [loading, setLoading] = useState(false);
   const { refresh } = useSession();
 
@@ -33,15 +99,46 @@ export function AuthLoginScreen() {
         onPress={handleSpotifyLogin}
         disabled={loading}
       >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonLabel}>Continue with Spotify</Text>
-        )}
+        {loading
+          ? <ActivityIndicator color="#fff" />
+          : <Text style={styles.buttonLabel}>Continue with Spotify</Text>}
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onReset}>
+        <Text style={styles.resetLink}>Change client ID</Text>
       </TouchableOpacity>
     </View>
   );
 }
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
+
+export function AuthLoginScreen() {
+  const [checked, setChecked] = useState(false);
+  const [hasClientId, setHasClientId] = useState(false);
+
+  useEffect(() => {
+    getClientId().then((id) => {
+      setHasClientId(!!id);
+      setChecked(true);
+    });
+  }, []);
+
+  if (!checked) {
+    return (
+      <View style={[styles.root, { justifyContent: 'center' }]}>
+        <ActivityIndicator color="#555" />
+      </View>
+    );
+  }
+
+  if (!hasClientId) {
+    return <ClientIdSetup onSaved={() => setHasClientId(true)} />;
+  }
+
+  return <SpotifyLogin onReset={() => setHasClientId(false)} />;
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   root: {
@@ -58,6 +155,34 @@ const styles = StyleSheet.create({
     color: '#fff',
     letterSpacing: -2,
   },
+
+  // Setup card
+  setupCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#111',
+    borderRadius: 16,
+    padding: 24,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: '#222',
+  },
+  setupHeading: { fontSize: 17, fontWeight: '700', color: '#fff' },
+  setupBody: { fontSize: 13, color: '#888', lineHeight: 20 },
+  setupLink: { color: '#1DB954' },
+  setupCode: { color: '#aaa', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  clientIdInput: {
+    backgroundColor: '#000',
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 13,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+
+  // Shared button
   button: {
     width: '100%',
     maxWidth: 320,
@@ -67,6 +192,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonBusy: { opacity: 0.7 },
+  buttonBusy: { opacity: 0.4 },
   buttonLabel: { color: '#fff', fontSize: 16, fontWeight: '600' },
+
+  resetLink: { fontSize: 13, color: '#444', marginTop: -8 },
 });

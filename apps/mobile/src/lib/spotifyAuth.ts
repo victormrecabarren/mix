@@ -2,8 +2,30 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 
-const SPOTIFY_CLIENT_ID = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID!;
 const REDIRECT_URI = 'mix://auth/callback';
+const CLIENT_ID_KEY = 'spotify_client_id';
+
+// ─── Client ID management ─────────────────────────────────────────────────────
+
+export async function getClientId(): Promise<string | null> {
+  return SecureStore.getItemAsync(CLIENT_ID_KEY);
+}
+
+export async function saveClientId(clientId: string): Promise<void> {
+  await SecureStore.setItemAsync(CLIENT_ID_KEY, clientId.trim());
+}
+
+export async function clearClientId(): Promise<void> {
+  await SecureStore.deleteItemAsync(CLIENT_ID_KEY);
+}
+
+async function requireClientId(): Promise<string> {
+  const id = await SecureStore.getItemAsync(CLIENT_ID_KEY);
+  if (!id) throw new Error('No Spotify client ID configured');
+  return id;
+}
+
+// ─── Scopes ───────────────────────────────────────────────────────────────────
 
 export const SPOTIFY_SCOPES = [
   'streaming',
@@ -53,11 +75,12 @@ async function generatePKCE() {
 // ─── Main auth flow ───────────────────────────────────────────────────────────
 
 export async function loginWithSpotify(): Promise<SpotifyProfile> {
+  const clientId = await requireClientId();
   const { verifier, challenge } = await generatePKCE();
   await SecureStore.setItemAsync('spotify_pkce_verifier', verifier);
 
   const params = new URLSearchParams({
-    client_id: SPOTIFY_CLIENT_ID,
+    client_id: clientId,
     response_type: 'code',
     redirect_uri: REDIRECT_URI,
     code_challenge_method: 'S256',
@@ -90,7 +113,7 @@ export async function loginWithSpotify(): Promise<SpotifyProfile> {
       grant_type: 'authorization_code',
       code,
       redirect_uri: REDIRECT_URI,
-      client_id: SPOTIFY_CLIENT_ID,
+      client_id: clientId,
       code_verifier: storedVerifier,
     }).toString(),
   });
@@ -125,13 +148,14 @@ export async function getSpotifyTokens(): Promise<SpotifyTokens | null> {
 }
 
 export async function refreshSpotifyTokens(refreshToken: string): Promise<SpotifyTokens> {
+  const clientId = await requireClientId();
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      client_id: SPOTIFY_CLIENT_ID,
+      client_id: clientId,
     }).toString(),
   });
   if (!res.ok) {
