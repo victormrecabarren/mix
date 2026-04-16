@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
-  Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView, Linking,
+  Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView, Linking, Share,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import * as Clipboard from 'expo-clipboard';
 import { loginWithSpotify, getValidAccessToken, getClientId, saveClientId } from '@/lib/spotifyAuth';
 import { signInToSupabase } from '@/lib/supabaseAuth';
 import { useSession } from '@/context/SessionContext';
@@ -33,7 +32,7 @@ function ClientIdSetup({ onSaved }: { onSaved: () => void }) {
   };
 
   const copyRedirectUri = async () => {
-    await Clipboard.setStringAsync(REDIRECT_URI);
+    await Share.share({ message: REDIRECT_URI });
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -64,7 +63,7 @@ function ClientIdSetup({ onSaved }: { onSaved: () => void }) {
             <Text style={styles.stepLabel}>3. Add this as a Redirect URI (tap to copy)</Text>
             <TouchableOpacity style={styles.copyRow} onPress={copyRedirectUri}>
               <Text style={styles.setupCode}>{REDIRECT_URI}</Text>
-              <Text style={styles.copyHint}>{copied ? '✓ Copied' : 'Copy'}</Text>
+              <Text style={styles.copyHint}>Share</Text>
             </TouchableOpacity>
           </View>
 
