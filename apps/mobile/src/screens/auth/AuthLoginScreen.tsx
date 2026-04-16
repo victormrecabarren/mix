@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
-  Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView,
+  Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView, Linking,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
+import * as Clipboard from 'expo-clipboard';
 import { loginWithSpotify, getValidAccessToken, getClientId, saveClientId } from '@/lib/spotifyAuth';
 import { signInToSupabase } from '@/lib/supabaseAuth';
 import { useSession } from '@/context/SessionContext';
@@ -12,9 +13,12 @@ WebBrowser.maybeCompleteAuthSession();
 
 // ─── Step 1: Client ID setup ──────────────────────────────────────────────────
 
+const REDIRECT_URI = 'mix://auth/callback';
+
 function ClientIdSetup({ onSaved }: { onSaved: () => void }) {
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleSave = async () => {
     const trimmed = value.trim();
@@ -28,6 +32,12 @@ function ClientIdSetup({ onSaved }: { onSaved: () => void }) {
     }
   };
 
+  const copyRedirectUri = async () => {
+    await Clipboard.setStringAsync(REDIRECT_URI);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
@@ -38,23 +48,38 @@ function ClientIdSetup({ onSaved }: { onSaved: () => void }) {
 
         <View style={styles.setupCard}>
           <Text style={styles.setupHeading}>One-time setup</Text>
-          <Text style={styles.setupBody}>
-            This build requires your own Spotify Developer client ID.{'\n\n'}
-            1. Go to <Text style={styles.setupLink}>developer.spotify.com/dashboard</Text>{'\n'}
-            2. Create an app (any name){'\n'}
-            3. Add <Text style={styles.setupCode}>mix://auth/callback</Text> as a Redirect URI{'\n'}
-            4. Copy your Client ID and paste it below
-          </Text>
 
-          <TextInput
-            style={styles.clientIdInput}
-            placeholder="Paste Client ID here"
-            placeholderTextColor="#555"
-            value={value}
-            onChangeText={setValue}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+          <View style={styles.step}>
+            <Text style={styles.stepLabel}>1. Open Spotify Developer Dashboard</Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://developer.spotify.com/dashboard')}>
+              <Text style={styles.setupLink}>developer.spotify.com/dashboard →</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.step}>
+            <Text style={styles.stepLabel}>2. Create an app — under "APIs used" select <Text style={styles.stepEmphasis}>Web Playback SDK</Text></Text>
+          </View>
+
+          <View style={styles.step}>
+            <Text style={styles.stepLabel}>3. Add this as a Redirect URI (tap to copy)</Text>
+            <TouchableOpacity style={styles.copyRow} onPress={copyRedirectUri}>
+              <Text style={styles.setupCode}>{REDIRECT_URI}</Text>
+              <Text style={styles.copyHint}>{copied ? '✓ Copied' : 'Copy'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.step}>
+            <Text style={styles.stepLabel}>4. Paste your Client ID below</Text>
+            <TextInput
+              style={styles.clientIdInput}
+              placeholder="Paste Client ID here"
+              placeholderTextColor="#555"
+              value={value}
+              onChangeText={setValue}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
 
           <TouchableOpacity
             style={[styles.button, (!value.trim() || saving) && styles.buttonBusy]}
@@ -168,9 +193,25 @@ const styles = StyleSheet.create({
     borderColor: '#222',
   },
   setupHeading: { fontSize: 17, fontWeight: '700', color: '#fff' },
-  setupBody: { fontSize: 13, color: '#888', lineHeight: 20 },
-  setupLink: { color: '#1DB954' },
-  setupCode: { color: '#aaa', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  setupLink: { fontSize: 13, color: '#1DB954' },
+  setupCode: { fontSize: 13, color: '#ccc', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', flexShrink: 1 },
+
+  step: { gap: 6 },
+  stepLabel: { fontSize: 13, color: '#888', lineHeight: 18 },
+  stepEmphasis: { color: '#fff', fontWeight: '600' },
+  copyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#000',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+  },
+  copyHint: { fontSize: 12, color: '#1DB954', fontWeight: '600', marginLeft: 8 },
+
   clientIdInput: {
     backgroundColor: '#000',
     borderRadius: 10,
