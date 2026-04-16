@@ -210,8 +210,11 @@ async function fetchSpotifyProfile(accessToken: string): Promise<SpotifyProfile>
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
-    throw new Error(`Spotify /me failed (${res.status}): ${body?.error?.message ?? 'unknown'}`);
+    const text = await res.text().catch(() => '');
+    console.error('[spotifyAuth] /me failed', res.status, text);
+    let message = 'unknown';
+    try { message = (JSON.parse(text) as { error?: { message?: string } })?.error?.message ?? text; } catch { message = text; }
+    throw new Error(`Spotify /me failed (${res.status}): ${message}`);
   }
   const data = await res.json() as { id: string; display_name?: string; email?: string; images?: { url: string }[] };
   return {
