@@ -49,18 +49,18 @@ function ClientIdSetup({ onSaved }: { onSaved: () => void }) {
           <Text style={styles.setupHeading}>One-time setup</Text>
 
           <View style={styles.step}>
-            <Text style={styles.stepLabel}>1. Open Spotify Developer Dashboard</Text>
-            <TouchableOpacity onPress={() => Linking.openURL('https://developer.spotify.com/dashboard')}>
-              <Text style={styles.setupLink}>developer.spotify.com/dashboard →</Text>
+            <Text style={styles.stepLabel}>1. Create a Spotify app</Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://developer.spotify.com/dashboard/create')}>
+              <Text style={styles.setupLink}>developer.spotify.com/dashboard/create →</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.step}>
-            <Text style={styles.stepLabel}>2. Create an app — under "APIs used" select <Text style={styles.stepEmphasis}>Web Playback SDK</Text></Text>
+            <Text style={styles.stepLabel}>2. Give it any name and description</Text>
           </View>
 
           <View style={styles.step}>
-            <Text style={styles.stepLabel}>3. Add this as a Redirect URI (tap to copy)</Text>
+            <Text style={styles.stepLabel}>3. Add this as the Redirect URI</Text>
             <TouchableOpacity style={styles.copyRow} onPress={copyRedirectUri}>
               <Text style={styles.setupCode}>{REDIRECT_URI}</Text>
               <Text style={styles.copyHint}>Share</Text>
@@ -68,7 +68,11 @@ function ClientIdSetup({ onSaved }: { onSaved: () => void }) {
           </View>
 
           <View style={styles.step}>
-            <Text style={styles.stepLabel}>4. Paste your Client ID below</Text>
+            <Text style={styles.stepLabel}>4. Under APIs used, select <Text style={styles.stepEmphasis}>Web Playback SDK</Text></Text>
+          </View>
+
+          <View style={styles.step}>
+            <Text style={styles.stepLabel}>5. Save — then paste your Client ID here</Text>
             <TextInput
               style={styles.clientIdInput}
               placeholder="Paste Client ID here"
