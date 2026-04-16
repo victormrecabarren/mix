@@ -11,7 +11,7 @@ type League = {
 };
 
 export function HomeTabScreen() {
-  const { session, supabaseUserId } = useSession();
+  const { session, supabaseUserId, signOut } = useSession();
   const router = useRouter();
 
   const [leagues, setLeagues] = useState<League[]>([]);
@@ -52,6 +52,9 @@ export function HomeTabScreen() {
           <Text style={styles.heading}>Home</Text>
           {session && <Text style={styles.subheading}>Hey, {session.displayName}</Text>}
         </View>
+        <TouchableOpacity onPress={signOut}>
+          <Text style={styles.signOutBtn}>Sign out</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Leagues section */}
@@ -132,6 +135,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  signOutBtn: { fontSize: 13, color: '#444', paddingTop: 4 },
   leagueName: { fontSize: 16, fontWeight: '700', color: '#fff' },
   commissionerBadge: { fontSize: 10, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
 });
