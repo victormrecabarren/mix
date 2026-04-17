@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ScrollView,
   View,
   Text,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   Alert,
   Image,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { useRouter, useFocusEffect } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
@@ -49,6 +49,15 @@ type Submission = {
   spotify_track_id: string | null;
   track_isrc: string;
   comment: string | null;
+};
+
+type Comment = {
+  id: string;
+  submission_id: string;
+  body: string;
+  author_user_id: string;
+  author_name: string;
+  created_at: string;
 };
 
 type SpotifyTrack = {
@@ -608,9 +617,8 @@ function VotingPhase({
   const pointsTotal = round.seasons?.default_points_per_round ?? 10;
   const maxPerTrack = round.seasons?.default_max_points_per_track ?? 5;
 
-  const [allocation, setAllocation] = useState<Record<string, number>>(
-    () => myVotes,
-  );
+  const [allocation, setAllocation] = useState<Record<string, number>>(() => myVotes);
+  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const used = Object.values(allocation).reduce((a, b) => a + b, 0);
@@ -628,169 +636,241 @@ function VotingPhase({
   };
 
   const submitVotes = async () => {
-    const entries = Object.entries(allocation).filter(([, pts]) => pts > 0);
-    if (entries.length === 0) {
-      Alert.alert(
-        "No points allocated",
-        "Assign at least 1 point to submit your votes.",
-      );
+    if (remaining > 0) {
+      Alert.alert('Points not fully spent', `You have ${remaining} point${remaining !== 1 ? 's' : ''} left to allocate.`);
       return;
     }
+    const entries = Object.entries(allocation).filter(([, pts]) => pts > 0);
     setSubmitting(true);
     try {
-      const rows = entries.map(([submission_id, points]) => ({
-        round_id: round.id,
-        submission_id,
-        voter_user_id: userId,
-        points,
-      }));
-      const { error } = await supabase.from("votes").insert(rows);
-      if (error) throw new Error(error.message);
+      // Submit votes via RPC — server validates total == default_points_per_round
+      const votePayload = entries.map(([submission_id, points]) => ({ submission_id, points }));
+      const { error: voteError } = await supabase.rpc('submit_votes', {
+        p_round_id: round.id,
+        p_voter_user_id: userId,
+        p_votes: votePayload,
+      });
+      if (voteError) throw new Error(voteError.message);
+
+      // Insert comments (any non-empty inputs, for any submission including own)
+      const commentRows = submissions
+        .filter((s) => (commentInputs[s.id] ?? '').trim().length > 0)
+        .map((s) => ({
+          round_id: round.id,
+          submission_id: s.id,
+          author_user_id: userId,
+          body: commentInputs[s.id].trim(),
+        }));
+      if (commentRows.length > 0) {
+        const { error: commentError } = await supabase.from('comments').insert(commentRows);
+        if (commentError) throw new Error(commentError.message);
+      }
+
       onVoted();
     } catch (err) {
-      Alert.alert(
-        "Vote failed",
-        err instanceof Error ? err.message : "Unknown error",
-      );
+      Alert.alert('Submit failed', err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const votable = submissions.filter((s) => s.user_id !== userId);
+  if (alreadyVoted) {
+    return (
+      <View style={styles.phaseCard}>
+        <View style={styles.votedBanner}>
+          <Text style={styles.votedBannerText}>✓ Votes locked in</Text>
+          <Text style={styles.votedBannerSub}>Results will show when voting closes.</Text>
+        </View>
+        {submissions.map((sub) => {
+          const isOwn = sub.user_id === userId;
+          const pts = myVotes[sub.id] ?? 0;
+          return (
+            <View key={sub.id} style={styles.submissionVoteCard}>
+              <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
+              {!!sub.comment && <Text style={styles.submissionComment}>"{sub.comment}"</Text>}
+              {isOwn
+                ? <Text style={styles.ownTrackLabel}>YOUR TRACK</Text>
+                : pts > 0
+                  ? <Text style={styles.lockedPts}>{pts} pt{pts !== 1 ? 's' : ''} given</Text>
+                  : <Text style={styles.lockedPtsNone}>— no points</Text>}
+            </View>
+          );
+        })}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.phaseCard}>
-      <Text style={styles.phaseLabel}>VOTE</Text>
+      {/* Points budget */}
       <View style={styles.pointsBar}>
-        <Text
-          style={[
-            styles.pointsRemaining,
-            remaining === 0 && { color: "#1DB954" },
-          ]}
-        >
+        <Text style={[styles.pointsRemaining, remaining === 0 && { color: '#1DB954' }]}>
           {remaining}
         </Text>
-        <Text style={styles.mutedHint}>
-          {" "}
-          / {pointsTotal} pts remaining · max {maxPerTrack} per track
-        </Text>
+        <Text style={styles.mutedHint}> / {pointsTotal} pts remaining · max {maxPerTrack} per track</Text>
       </View>
 
-      {alreadyVoted && (
-        <View style={styles.votedBanner}>
-          <Text style={styles.votedBannerText}>✓ Votes submitted</Text>
-        </View>
-      )}
-
-      {votable.map((sub) => (
-        <View key={sub.id} style={styles.voteRow}>
-          <View style={{ flex: 1 }}>
-            <TrackRow
-              title={sub.track_title}
-              artist={sub.track_artist}
-              artwork={sub.track_artwork_url}
-              compact
-            />
-            {!!sub.comment && (
-              <Text style={styles.submissionComment}>"{sub.comment}"</Text>
+      {submissions.map((sub) => {
+        const isOwn = sub.user_id === userId;
+        return (
+          <View key={sub.id} style={styles.submissionVoteCard}>
+            <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
+            {!!sub.comment && <Text style={styles.submissionComment}>"{sub.comment}"</Text>}
+            {isOwn ? (
+              <Text style={styles.ownTrackLabel}>YOUR TRACK</Text>
+            ) : (
+              <View style={styles.voteStepper}>
+                <TouchableOpacity style={styles.voteBtn} onPress={() => adjust(sub.id, -1)}>
+                  <Text style={styles.voteBtnText}>−</Text>
+                </TouchableOpacity>
+                <Text style={styles.votePoints}>{allocation[sub.id] ?? 0}</Text>
+                <TouchableOpacity style={styles.voteBtn} onPress={() => adjust(sub.id, 1)}>
+                  <Text style={styles.voteBtnText}>+</Text>
+                </TouchableOpacity>
+              </View>
             )}
+            <TextInput
+              style={styles.commentInputField}
+              value={commentInputs[sub.id] ?? ''}
+              onChangeText={(v) => setCommentInputs((prev) => ({ ...prev, [sub.id]: v }))}
+              placeholder="Leave a comment… (optional)"
+              placeholderTextColor="#444"
+              multiline
+            />
           </View>
-          <View style={styles.voteStepper}>
-            <TouchableOpacity
-              style={styles.voteBtn}
-              onPress={() => adjust(sub.id, -1)}
-              disabled={alreadyVoted}
-            >
-              <Text style={styles.voteBtnText}>−</Text>
-            </TouchableOpacity>
-            <Text style={styles.votePoints}>{allocation[sub.id] ?? 0}</Text>
-            <TouchableOpacity
-              style={styles.voteBtn}
-              onPress={() => adjust(sub.id, 1)}
-              disabled={alreadyVoted}
-            >
-              <Text style={styles.voteBtnText}>+</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ))}
+        );
+      })}
 
-      {!alreadyVoted && (
-        <TouchableOpacity
-          style={[styles.submitVoteBtn, submitting && { opacity: 0.4 }]}
-          onPress={submitVotes}
-          disabled={submitting}
-        >
-          {submitting ? (
-            <ActivityIndicator color="#000" />
-          ) : (
-            <Text style={styles.submitVoteBtnText}>Submit Votes</Text>
-          )}
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        style={[styles.submitVoteBtn, (submitting || remaining > 0) && { opacity: 0.4 }]}
+        onPress={submitVotes}
+        disabled={submitting || remaining > 0}
+      >
+        {submitting
+          ? <ActivityIndicator color="#000" />
+          : <Text style={styles.submitVoteBtnText}>Submit Votes</Text>}
+      </TouchableOpacity>
     </View>
   );
 }
 
 // ─── Results phase ────────────────────────────────────────────────────────────
 
-function ResultsPhase({ submissions }: { submissions: Submission[] }) {
+type VoterEntry = {
+  voter_user_id: string;
+  voter_name: string;
+  points: number;
+  comment: string | null;
+};
+
+function ResultsPhase({ submissions, roundId }: { submissions: Submission[]; roundId: string }) {
   const [scores, setScores] = useState<Record<string, number>>({});
+  const [votersBySubmission, setVotersBySubmission] = useState<Record<string, VoterEntry[]>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (submissions.length === 0) {
-      setLoading(false);
-      return;
-    }
-    supabase
-      .from("votes")
-      .select("submission_id, points")
-      .in(
-        "submission_id",
-        submissions.map((s) => s.id),
-      )
-      .then(({ data }) => {
-        const totals: Record<string, number> = {};
-        (data ?? []).forEach(({ submission_id, points }) => {
-          totals[submission_id] = (totals[submission_id] ?? 0) + points;
-        });
-        setScores(totals);
-        setLoading(false);
+    if (submissions.length === 0) { setLoading(false); return; }
+    const ids = submissions.map((s) => s.id);
+    Promise.all([
+      supabase
+        .from('votes')
+        .select('submission_id, points, voter_user_id, users(display_name)')
+        .in('submission_id', ids),
+      supabase
+        .from('comments')
+        .select('submission_id, body, author_user_id')
+        .eq('round_id', roundId),
+    ]).then(([{ data: voteData }, { data: commentData }]) => {
+      // Build a lookup: submission_id → voter_user_id → comment body
+      const commentLookup: Record<string, Record<string, string>> = {};
+      (commentData ?? []).forEach((c) => {
+        if (!commentLookup[c.submission_id]) commentLookup[c.submission_id] = {};
+        commentLookup[c.submission_id][c.author_user_id] = c.body;
       });
-  }, [submissions]);
 
-  if (loading)
-    return <ActivityIndicator color="#555" style={{ marginTop: 24 }} />;
+      // Build totals and per-voter entries
+      const totals: Record<string, number> = {};
+      const voterMap: Record<string, VoterEntry[]> = {};
 
-  const ranked = [...submissions].sort(
-    (a, b) => (scores[b.id] ?? 0) - (scores[a.id] ?? 0),
-  );
+      (voteData ?? []).forEach((v) => {
+        totals[v.submission_id] = (totals[v.submission_id] ?? 0) + v.points;
+        if (!voterMap[v.submission_id]) voterMap[v.submission_id] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const name = (Array.isArray(v.users) ? (v.users[0] as any)?.display_name : (v.users as any)?.display_name) ?? 'Unknown';
+        voterMap[v.submission_id].push({
+          voter_user_id: v.voter_user_id,
+          voter_name: name,
+          points: v.points,
+          comment: commentLookup[v.submission_id]?.[v.voter_user_id] ?? null,
+        });
+      });
+
+      // Sort each submission's voters by points desc
+      Object.values(voterMap).forEach((entries) =>
+        entries.sort((a, b) => b.points - a.points),
+      );
+
+      setScores(totals);
+      setVotersBySubmission(voterMap);
+      setLoading(false);
+    });
+  }, [submissions, roundId]);
+
+  if (loading) return <ActivityIndicator color="#555" style={{ marginTop: 24 }} />;
+
+  const ranked = [...submissions].sort((a, b) => (scores[b.id] ?? 0) - (scores[a.id] ?? 0));
+  const medalColor = ['#FFD700', '#C0C0C0', '#CD7F32'];
 
   return (
-    <View style={styles.phaseCard}>
+    <View style={{ gap: 10 }}>
       <Text style={styles.phaseLabel}>RESULTS</Text>
-      {ranked.length === 0 && (
-        <Text style={styles.mutedHint}>No submissions recorded.</Text>
-      )}
-      {ranked.map((sub, i) => (
-        <View key={sub.id} style={styles.resultItem}>
-          <Text style={styles.rank}>#{i + 1}</Text>
-          <View style={{ flex: 1 }}>
-            <TrackRow
-              title={sub.track_title}
-              artist={sub.track_artist}
-              artwork={sub.track_artwork_url}
-              compact
-            />
-            {!!sub.comment && (
-              <Text style={styles.submissionComment}>"{sub.comment}"</Text>
-            )}
+      {ranked.length === 0 && <Text style={styles.mutedHint}>No submissions recorded.</Text>}
+      {ranked.map((sub, i) => {
+        const voters = votersBySubmission[sub.id] ?? [];
+        const color = medalColor[i] ?? '#444';
+        const pts = scores[sub.id] ?? 0;
+        return (
+          <View key={sub.id} style={[styles.resultItem, i < 3 && { borderColor: color + '44' }]}>
+            {/* Rank column — top-aligned */}
+            <View style={styles.rankCol}>
+              <Text style={[styles.rank, { color }]}>#{i + 1}</Text>
+            </View>
+
+            {/* Main content */}
+            <View style={styles.resultContent}>
+              <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
+              {!!sub.comment && <Text style={styles.submissionComment}>"{sub.comment}"</Text>}
+
+              {voters.length > 0 && (
+                <View style={styles.votersThread}>
+                  {voters.map((entry, vi) => (
+                    <View
+                      key={entry.voter_user_id}
+                      style={[styles.voterRow, vi > 0 && styles.voterRowBorder]}
+                    >
+                      <View style={styles.voterHeader}>
+                        <Text style={styles.voterName}>{entry.voter_name}</Text>
+                        <Text style={[styles.voterPoints, entry.points === 0 && styles.voterPointsZero]}>
+                          {entry.points > 0 ? `+${entry.points}` : '—'}
+                        </Text>
+                      </View>
+                      {!!entry.comment && (
+                        <Text style={styles.voterComment}>"{entry.comment}"</Text>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Score — top-aligned */}
+            <View style={styles.scoreCol}>
+              <Text style={[styles.resultScore, { color }]}>{pts}</Text>
+              <Text style={styles.resultScoreLabel}>pts</Text>
+            </View>
           </View>
-          <Text style={styles.resultScore}>{scores[sub.id] ?? 0} pts</Text>
-        </View>
-      ))}
+        );
+      })}
     </View>
   );
 }
@@ -925,11 +1005,35 @@ export function RoundScreen({
     upcoming: "NOT STARTED YET",
   };
 
+  const forceCloseVoting = async () => {
+    Alert.alert(
+      "Force end voting?",
+      "This will immediately close the voting window and move the round to results.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "End Voting",
+          style: "destructive",
+          onPress: async () => {
+            await supabase
+              .from("rounds")
+              .update({ voting_deadline_at: new Date().toISOString() })
+              .eq("id", round.id);
+            fetchData();
+          },
+        },
+      ],
+    );
+  };
+
   return (
-    <ScrollView
+    <KeyboardAwareScrollView
       contentContainerStyle={styles.root}
       style={{ backgroundColor: "#000" }}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+      enableOnAndroid
+      extraScrollHeight={100}
     >
       <View style={styles.roundMeta}>
         <Text style={styles.roundTitle}>{round.prompt}</Text>
@@ -988,28 +1092,14 @@ export function RoundScreen({
         />
       )}
 
-      {phase === "results" && <ResultsPhase submissions={submissions} />}
-
-      {(phase === "voting" || phase === "results") && (
-        <View style={styles.allSubmissions}>
-          <Text style={styles.sectionLabel}>
-            ALL SUBMISSIONS ({submissions.length})
-          </Text>
-          {submissions.map((sub) => (
-            <View key={sub.id} style={styles.submissionCard}>
-              <TrackRow
-                title={sub.track_title}
-                artist={sub.track_artist}
-                artwork={sub.track_artwork_url}
-              />
-              {!!sub.comment && (
-                <Text style={styles.submissionComment}>"{sub.comment}"</Text>
-              )}
-            </View>
-          ))}
-        </View>
+      {phase === "voting" && isCommissioner && (
+        <TouchableOpacity style={styles.forceCloseBtn} onPress={forceCloseVoting}>
+          <Text style={styles.forceCloseBtnText}>Force End Voting</Text>
+        </TouchableOpacity>
       )}
-    </ScrollView>
+
+      {phase === "results" && <ResultsPhase submissions={submissions} roundId={round.id} />}
+    </KeyboardAwareScrollView>
   );
 }
 
@@ -1204,8 +1294,16 @@ const styles = StyleSheet.create({
   trackTitle: { fontSize: 15, fontWeight: "600", color: "#fff" },
   trackArtist: { fontSize: 12, color: "#888" },
 
-  // Voting
-  voteRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  // Voting — unified submission card
+  submissionVoteCard: {
+    backgroundColor: '#111',
+    borderRadius: 12,
+    padding: 14,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+  },
+  ownTrackLabel: { fontSize: 10, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
   voteStepper: { flexDirection: "row", alignItems: "center", gap: 6 },
   voteBtn: {
     width: 32,
@@ -1226,12 +1324,16 @@ const styles = StyleSheet.create({
   votedBanner: {
     backgroundColor: "#0a1f10",
     borderRadius: 8,
-    padding: 10,
+    padding: 12,
     alignItems: "center",
+    gap: 4,
     borderWidth: 1,
     borderColor: "#1DB95433",
   },
   votedBannerText: { color: "#1DB954", fontSize: 13, fontWeight: "700" },
+  votedBannerSub: { color: "#1DB95499", fontSize: 11 },
+  lockedPts: { fontSize: 12, fontWeight: "700", color: "#1DB954" },
+  lockedPtsNone: { fontSize: 12, color: "#333" },
   submitVoteBtn: {
     backgroundColor: "#1DB954",
     borderRadius: 12,
@@ -1241,31 +1343,82 @@ const styles = StyleSheet.create({
   submitVoteBtnText: { color: "#000", fontSize: 15, fontWeight: "800" },
 
   // Results
-  resultItem: { flexDirection: "row", alignItems: "center", gap: 10 },
-  rank: { fontSize: 16, fontWeight: "800", color: "#555", width: 28 },
-  resultScore: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#1DB954",
-    minWidth: 52,
-    textAlign: "right",
-  },
-
-  // All submissions
-  allSubmissions: { gap: 10 },
-  sectionLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#444",
-    letterSpacing: 1,
-  },
-  submissionCard: {
-    backgroundColor: "#111",
-    borderRadius: 10,
-    padding: 12,
+  resultItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: "#0d0d0d",
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
     borderColor: "#1a1a1a",
   },
+  rankCol: {
+    width: 32,
+    alignItems: "center",
+    paddingTop: 2,
+  },
+  rank: { fontSize: 15, fontWeight: "800" },
+  resultContent: { flex: 1, gap: 8 },
+  scoreCol: {
+    alignItems: "flex-end",
+    paddingTop: 2,
+    minWidth: 40,
+  },
+  resultScore: {
+    fontSize: 22,
+    fontWeight: "800",
+    lineHeight: 24,
+  },
+  resultScoreLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#555",
+    letterSpacing: 0.5,
+  },
+
+  // Voter thread (results)
+  votersThread: {
+    gap: 0,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#1e1e1e',
+    marginTop: 4,
+  },
+  voterRow: {
+    backgroundColor: '#111',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  voterRowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: '#1e1e1e',
+  },
+  voterHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  voterName: { fontSize: 12, fontWeight: '700', color: '#bbb' },
+  voterPoints: { fontSize: 13, fontWeight: '800', color: '#1DB954' },
+  voterPointsZero: { color: '#444' },
+  voterComment: { fontSize: 12, color: '#888', fontStyle: 'italic', lineHeight: 17 },
+
+  // Comment input (voting phase)
+  commentInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
+  commentInputField: {
+    flex: 1,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#fff',
+  },
+  commentSendBtn: { paddingHorizontal: 8, paddingVertical: 6 },
+  commentSendText: { fontSize: 13, fontWeight: '700', color: '#1DB954' },
   submissionComment: {
     marginTop: 8,
     color: "#999",
@@ -1273,4 +1426,15 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     lineHeight: 17,
   },
+
+  // Commissioner force-close
+  forceCloseBtn: {
+    borderRadius: 10,
+    padding: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#c0392b55",
+    backgroundColor: "#1a0505",
+  },
+  forceCloseBtnText: { color: "#e74c3c", fontWeight: "700", fontSize: 13 },
 });
