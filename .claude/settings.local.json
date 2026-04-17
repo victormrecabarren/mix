@@ -40,7 +40,16 @@
       "Bash(openssl rand:*)",
       "Bash(supabase secrets:*)",
       "Bash(mv /Users/victorrecabarren/repos/mix/apps/mobile/src/app/league/\\\\[id\\\\].tsx /Users/victorrecabarren/repos/mix/apps/mobile/src/app/\\\\\\(tabs\\\\\\)/league/\\\\[id\\\\].tsx)",
-      "Bash(mv /Users/victorrecabarren/repos/mix/apps/mobile/src/app/season/\\\\[id\\\\].tsx /Users/victorrecabarren/repos/mix/apps/mobile/src/app/\\\\\\(tabs\\\\\\)/season/\\\\[id\\\\].tsx)"
+      "Bash(mv /Users/victorrecabarren/repos/mix/apps/mobile/src/app/season/\\\\[id\\\\].tsx /Users/victorrecabarren/repos/mix/apps/mobile/src/app/\\\\\\(tabs\\\\\\)/season/\\\\[id\\\\].tsx)",
+      "Bash(git stash:*)",
+      "Bash(git:*)",
+      "Bash(gh auth:*)",
+      "Bash(brew list:*)",
+      "Bash(gh project:*)",
+      "Bash(gh api:*)",
+      "Bash(gh label:*)",
+      "Bash(python3 -c \"import json,sys; items=json.load\\(sys.stdin\\)['items']; [print\\(f\\\\\"#{i['content']['number']} {i['content']['title']}\\\\\"\\) for i in items]\")",
+      "Bash(python3 -c \"import json,sys; items=json.load\\(sys.stdin\\)['items']; [print\\(f\\\\\"#{i['content']['number']} {i['content']['title']}\\\\\"\\) for i in items if i.get\\('content'\\)]\")"
     ]
   }
 }
