@@ -140,7 +140,10 @@ async function recommendedTracks(token, genre, limit) {
     `https://api.spotify.com/v1/recommendations?seed_genres=${genre}&limit=${limit}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
-  const data = await res.json();
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error(`Spotify recommendations non-JSON (${res.status}): ${text.slice(0, 200)}`); }
+  if (!res.ok) throw new Error(`Spotify recommendations error (${res.status}): ${JSON.stringify(data)}`);
   return data.tracks ?? [];
 }
 
