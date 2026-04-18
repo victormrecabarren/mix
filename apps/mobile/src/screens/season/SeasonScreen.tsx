@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
+  RefreshControl, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
   Modal, TextInput, Alert,
 } from 'react-native';
 import { KeyboardScroll } from '@/components/KeyboardScroll';
@@ -408,6 +408,13 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  }, [fetchData]);
+
   const isCommissioner = season?.leagues?.admin_user_id === userId;
 
   if (loading) {
@@ -430,7 +437,11 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
 
   return (
     <>
-      <KeyboardScroll contentContainerStyle={styles.root} style={{ backgroundColor: '#000' }}>
+      <KeyboardScroll
+        contentContainerStyle={styles.root}
+        style={{ backgroundColor: '#000' }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+      >
         {/* ── Season header ── */}
         <View style={styles.titleRow}>
           <Text style={styles.pageTitle}>{season.name}</Text>

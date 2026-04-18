@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  RefreshControl,
   View,
   Text,
   StyleSheet,
@@ -974,6 +975,13 @@ export function RoundScreen({
     }, [fetchData]),
   );
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  }, [fetchData]);
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -1032,6 +1040,7 @@ export function RoundScreen({
       contentContainerStyle={styles.root}
       style={{ backgroundColor: "#000" }}
       enableOnAndroid
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
     >
       <View style={styles.roundMeta}>
         <Text style={styles.roundTitle}>{round.prompt}</Text>
