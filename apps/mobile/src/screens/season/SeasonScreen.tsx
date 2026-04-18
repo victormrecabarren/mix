@@ -35,20 +35,19 @@ type Member = {
   display_name: string;
 };
 
-function getRoundEffectiveStatus(rounds: Round[], index: number): { label: string; color: string } {
+function getRoundEffectiveStatus(rounds: Round[], index: number): { label: string; color: string; isActive: boolean } {
   const now = Date.now();
   const isCompleted = (r: Round) => now >= new Date(r.voting_deadline_at).getTime();
 
-  // Round is only active if all previous rounds are completed
   const prevCompleted = index === 0 || isCompleted(rounds[index - 1]);
-  if (!prevCompleted) return { label: 'UPCOMING', color: '#444' };
+  if (!prevCompleted) return { label: 'UPCOMING', color: '#444', isActive: false };
 
   const round = rounds[index];
   const subDeadline = new Date(round.submission_deadline_at).getTime();
   const voteDeadline = new Date(round.voting_deadline_at).getTime();
-  if (now < subDeadline) return { label: 'SUBMISSIONS OPEN', color: '#1DB954' };
-  if (now < voteDeadline) return { label: 'VOTING OPEN', color: '#f0a500' };
-  return { label: 'COMPLETED', color: '#555' };
+  if (now < subDeadline) return { label: 'SUBMISSIONS OPEN', color: '#1DB954', isActive: true };
+  if (now < voteDeadline) return { label: 'VOTING OPEN', color: '#f0a500', isActive: true };
+  return { label: 'COMPLETED', color: '#555', isActive: false };
 }
 
 function formatDate(iso: string) {
@@ -62,6 +61,41 @@ function formatDateTime(date: Date) {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
   });
+}
+
+// ─── Avatar stack ─────────────────────────────────────────────────────────────
+
+const MAX_AVATARS = 4;
+
+function AvatarStack({ members, label, color }: {
+  members: Member[];
+  label: string;
+  color: string;
+}) {
+  const shown = members.slice(0, MAX_AVATARS);
+  const overflow = members.length - shown.length;
+  return (
+    <View style={styles.avatarStackRow}>
+      <Text style={[styles.avatarStackLabel, { color }]}>
+        {label} ({members.length})
+      </Text>
+      <View style={styles.avatarStackAvatars}>
+        {shown.map((m, i) => (
+          <View
+            key={m.user_id}
+            style={[styles.avatarStackBubble, { marginLeft: i === 0 ? 0 : -8, zIndex: MAX_AVATARS - i }]}
+          >
+            <Text style={styles.avatarStackInitial}>{m.display_name[0]?.toUpperCase() ?? '?'}</Text>
+          </View>
+        ))}
+        {overflow > 0 && (
+          <View style={[styles.avatarStackBubble, styles.avatarStackOverflow, { marginLeft: -8 }]}>
+            <Text style={styles.avatarStackOverflowText}>+{overflow}</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
 }
 
 // ─── Shared subcomponents ─────────────────────────────────────────────────────
@@ -295,6 +329,8 @@ function RoundEditModal({ round, visible, onClose, onSaved }: {
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
+type Tab = 'rounds' | 'members';
+
 export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueId?: string }) {
   const router = useRouter();
 
@@ -302,7 +338,9 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
   const [season, setSeason] = useState<Season | null>(null);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [submittersByRound, setSubmittersByRound] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<Tab>('rounds');
 
   const [editingSeasonOpen, setEditingSeasonOpen] = useState(false);
   const [editingRound, setEditingRound] = useState<Round | null>(null);
@@ -340,8 +378,21 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
         .order('joined_at', { ascending: true }),
     ]);
 
+    const roundIds = (roundsData ?? []).map((r) => r.id);
+    const { data: subsData } = roundIds.length > 0
+      ? await supabase.from('submissions').select('round_id, user_id').in('round_id', roundIds)
+      : { data: [] };
+
+    // Build map: roundId → unique user_ids who submitted
+    const byRound: Record<string, string[]> = {};
+    for (const sub of (subsData ?? [])) {
+      if (!byRound[sub.round_id]) byRound[sub.round_id] = [];
+      if (!byRound[sub.round_id].includes(sub.user_id)) byRound[sub.round_id].push(sub.user_id);
+    }
+
     setSeason({ ...seasonData, leagues: league ?? null });
     setRounds(roundsData ?? []);
+    setSubmittersByRound(byRound);
     setMembers(
       (membersData ?? []).map((m) => ({
         user_id: m.user_id,
@@ -380,6 +431,7 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
   return (
     <>
       <KeyboardScroll contentContainerStyle={styles.root} style={{ backgroundColor: '#000' }}>
+        {/* ── Season header ── */}
         <View style={styles.titleRow}>
           <Text style={styles.pageTitle}>{season.name}</Text>
           <View style={[styles.statusBadge, season.status === 'active' ? styles.statusActive : styles.statusDone]}>
@@ -393,71 +445,107 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
           </TouchableOpacity>
         )}
 
-        {/* ── Rounds ── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Rounds ({rounds.length})</Text>
+        {/* ── Tab switcher ── */}
+        <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={[styles.tabBtn, tab === 'rounds' && styles.tabBtnActive]}
+            onPress={() => setTab('rounds')}
+          >
+            <Text style={[styles.tabBtnText, tab === 'rounds' && styles.tabBtnTextActive]}>
+              Rounds
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabBtn, tab === 'members' && styles.tabBtnActive]}
+            onPress={() => setTab('members')}
+          >
+            <Text style={[styles.tabBtnText, tab === 'members' && styles.tabBtnTextActive]}>
+              Members ({members.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-          {rounds.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>No rounds yet.</Text>
-            </View>
-          ) : (
-            rounds.map((round, index) => {
-              const { label, color } = getRoundEffectiveStatus(rounds, index);
-              return (
-                <TouchableOpacity
-                  key={round.id}
-                  style={styles.roundCard}
-                  activeOpacity={0.7}
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  onPress={() => router.push({ pathname: '/(tabs)/(stack)/round/[id]' as any, params: { id: round.id, seasonId } })}
-                >
-                  <View style={styles.roundHeader}>
-                    <Text style={styles.roundNumber}>Round {round.round_number}</Text>
-                    <View style={styles.roundHeaderRight}>
-                      <Text style={[styles.roundStatus, { color }]}>{label}</Text>
-                      {isCommissioner && (
-                        <TouchableOpacity
-                          onPress={(e) => { e.stopPropagation(); setEditingRound(round); }}
-                          style={styles.roundEditBtn}
-                        >
-                          <Text style={styles.roundEditBtnText}>Edit</Text>
-                        </TouchableOpacity>
-                      )}
+        {/* ── Rounds tab ── */}
+        {tab === 'rounds' && (
+          <View style={styles.section}>
+            {rounds.length === 0 ? (
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>No rounds yet.</Text>
+              </View>
+            ) : (
+              rounds.map((round, index) => {
+                const { label, color, isActive } = getRoundEffectiveStatus(rounds, index);
+                const submittedIds = submittersByRound[round.id] ?? [];
+                const submittedMembers = members.filter((m) => submittedIds.includes(m.user_id));
+                const waitingMembers = members.filter((m) => !submittedIds.includes(m.user_id));
+
+                return (
+                  <TouchableOpacity
+                    key={round.id}
+                    style={styles.roundCard}
+                    activeOpacity={0.7}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    onPress={() => router.push({ pathname: '/(tabs)/(stack)/round/[id]' as any, params: { id: round.id, seasonId } })}
+                  >
+                    <View style={styles.roundHeader}>
+                      <Text style={styles.roundNumber}>Round {round.round_number}</Text>
+                      <View style={styles.roundHeaderRight}>
+                        <Text style={[styles.roundStatus, { color }]}>{label}</Text>
+                        {isCommissioner && (
+                          <TouchableOpacity
+                            onPress={(e) => { e.stopPropagation(); setEditingRound(round); }}
+                            style={styles.roundEditBtn}
+                          >
+                            <Text style={styles.roundEditBtnText}>Edit</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     </View>
-                  </View>
-                  <Text style={styles.roundPrompt}>{round.prompt}</Text>
-                  {!!round.description && <Text style={styles.roundDescription}>{round.description}</Text>}
-                  <View style={styles.roundDates}>
-                    <Text style={styles.dateLabel}>Subs due <Text style={styles.dateValue}>{formatDate(round.submission_deadline_at)}</Text></Text>
-                    <Text style={styles.dateLabel}>Votes due <Text style={styles.dateValue}>{formatDate(round.voting_deadline_at)}</Text></Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })
-          )}
-        </View>
+                    <Text style={styles.roundPrompt}>{round.prompt}</Text>
+                    {!!round.description && <Text style={styles.roundDescription}>{round.description}</Text>}
 
-        {/* ── Members ── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Members ({members.length})</Text>
-          {members.map((m) => (
-            <View key={m.user_id} style={styles.memberRow}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{m.display_name[0]?.toUpperCase() ?? '?'}</Text>
+                    {/* Submission status — only shown on active rounds */}
+                    {isActive && (
+                      <View style={styles.submissionStatus}>
+                        <AvatarStack members={submittedMembers} label="Submitted" color="#1DB954" />
+                        {waitingMembers.length > 0 && (
+                          <AvatarStack members={waitingMembers} label="Waiting" color="#555" />
+                        )}
+                      </View>
+                    )}
+
+                    <View style={styles.roundDates}>
+                      <Text style={styles.dateLabel}>Subs due <Text style={styles.dateValue}>{formatDate(round.submission_deadline_at)}</Text></Text>
+                      <Text style={styles.dateLabel}>Votes due <Text style={styles.dateValue}>{formatDate(round.voting_deadline_at)}</Text></Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </View>
+        )}
+
+        {/* ── Members tab ── */}
+        {tab === 'members' && (
+          <View style={styles.section}>
+            {members.map((m) => (
+              <View key={m.user_id} style={styles.memberRow}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{m.display_name[0]?.toUpperCase() ?? '?'}</Text>
+                </View>
+                <Text style={styles.memberName}>{m.display_name}</Text>
+                <View style={styles.memberBadges}>
+                  {m.user_id === league?.admin_user_id && (
+                    <Text style={styles.commBadge}>COMM</Text>
+                  )}
+                  <Text style={[styles.roleBadge, m.role === 'spectator' && styles.roleBadgeSpectator]}>
+                    {m.role.toUpperCase()}
+                  </Text>
+                </View>
               </View>
-              <Text style={styles.memberName}>{m.display_name}</Text>
-              <View style={styles.memberBadges}>
-                {m.user_id === league?.admin_user_id && (
-                  <Text style={styles.commBadge}>COMM</Text>
-                )}
-                <Text style={[styles.roleBadge, m.role === 'spectator' && styles.roleBadgeSpectator]}>
-                  {m.role.toUpperCase()}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </View>
+            ))}
+          </View>
+        )}
       </KeyboardScroll>
 
       {/* ── Season edit modal ── */}
@@ -498,8 +586,14 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#1DB954' },
   seasonMeta: { fontSize: 13, color: '#555', marginTop: -12 },
 
+  // Tab bar
+  tabBar: { flexDirection: 'row', backgroundColor: '#111', borderRadius: 10, padding: 3, gap: 3 },
+  tabBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
+  tabBtnActive: { backgroundColor: '#1a1a1a' },
+  tabBtnText: { fontSize: 13, fontWeight: '600', color: '#555' },
+  tabBtnTextActive: { color: '#fff' },
+
   section: { gap: 12 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: '#666', letterSpacing: 1, textTransform: 'uppercase' },
 
   empty: { paddingVertical: 24, alignItems: 'center' },
   emptyText: { fontSize: 14, color: '#444' },
@@ -516,6 +610,16 @@ const styles = StyleSheet.create({
   roundDates: { gap: 2, marginTop: 4 },
   dateLabel: { fontSize: 11, color: '#555' },
   dateValue: { color: '#888' },
+
+  // Submission status on active round cards
+  submissionStatus: { gap: 6, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#1a1a1a', marginTop: 2 },
+  avatarStackRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatarStackLabel: { fontSize: 11, fontWeight: '700', width: 90 },
+  avatarStackAvatars: { flexDirection: 'row', alignItems: 'center' },
+  avatarStackBubble: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#2a2a2a', borderWidth: 1.5, borderColor: '#111', alignItems: 'center', justifyContent: 'center' },
+  avatarStackInitial: { fontSize: 10, fontWeight: '700', color: '#fff' },
+  avatarStackOverflow: { backgroundColor: '#222' },
+  avatarStackOverflowText: { fontSize: 9, fontWeight: '700', color: '#888' },
 
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#222', alignItems: 'center', justifyContent: 'center' },
