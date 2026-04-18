@@ -316,6 +316,44 @@ async function voteForPlayer(env, args) {
   }
 }
 
+async function joinForPlayer(env, args) {
+  const key = args.player?.toUpperCase();
+  const inviteArg = args.invite;
+  if (!key || !inviteArg) { console.error('Usage: join --player <A|B|C> --invite <url-or-token>'); process.exit(1); }
+  if (!PLAYERS[key]) { console.error(`Unknown player "${key}". Use A, B, or C.`); process.exit(1); }
+
+  const state = loadState();
+  const userId = state.players?.[key];
+  if (!userId) { console.error(`No saved ID for Player ${key} — run setup-players first`); process.exit(1); }
+
+  // Extract UUID token from a full URL or accept a bare UUID
+  const tokenMatch = inviteArg.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+  if (!tokenMatch) { console.error('Could not find a UUID token in the provided invite value'); process.exit(1); }
+  const token = tokenMatch[0];
+
+  // Resolve league + season via RPC
+  const infoRes = await sb(env, '/rest/v1/rpc/get_join_invite_info', 'POST', { invite_token: token });
+  const info = Array.isArray(infoRes.data) ? infoRes.data[0] : infoRes.data;
+  if (!info?.league_id) {
+    console.error('Invalid or expired invite token');
+    console.error(infoRes.data);
+    process.exit(1);
+  }
+
+  console.log(`Joining "${info.league_name}" / "${info.season_name}" as Player ${key}...`);
+
+  const memberRes = await sb(env, '/rest/v1/league_members', 'POST',
+    { league_id: info.league_id, user_id: userId, role: 'participant' },
+    { Prefer: 'resolution=ignore-duplicates,return=representation' });
+
+  if (memberRes.ok || memberRes.status === 409) {
+    console.log(`  ✓ Player ${key} joined league ${info.league_id}`);
+  } else {
+    console.error('Failed:', memberRes.data);
+    process.exit(1);
+  }
+}
+
 // ─── Entry ────────────────────────────────────────────────────────────────────
 
 const [,, command, ...rest] = process.argv;
@@ -324,6 +362,7 @@ const env = loadEnv();
 
 const commands = {
   'setup-players': setupPlayers,
+  join:            joinForPlayer,
   advance:         advanceRound,
   submit:          submitForPlayer,
   vote:            voteForPlayer,
@@ -334,6 +373,7 @@ if (!fn) {
   console.log('Usage: node scripts/test.mjs <command> [options]');
   console.log('');
   console.log('  setup-players  --league <id>');
+  console.log('  join           --player <A|B|C> --invite <url-or-token>');
   console.log('  advance        --round <id> [--subs-close <s>] [--vote-close <s>]');
   console.log('  submit         --player <A|B|C> --round <id>');
   console.log('  vote           --player <A|B|C> --round <id>');
