@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react';
 import {
-  RefreshControl, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
+  RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
   Modal, TextInput, Alert,
 } from 'react-native';
-import { KeyboardScroll } from '@/components/KeyboardScroll';
+import { KeyboardScroll } from '@/components/KeyboardScroll'; // used inside modals only
 import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -437,7 +437,7 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
 
   return (
     <>
-      <KeyboardScroll
+      <ScrollView
         contentContainerStyle={styles.root}
         style={{ backgroundColor: '#000' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
@@ -557,7 +557,7 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
             ))}
           </View>
         )}
-      </KeyboardScroll>
+      </ScrollView>
 
       {/* ── Season edit modal ── */}
       {isCommissioner && (

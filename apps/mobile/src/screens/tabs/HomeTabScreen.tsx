@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react';
-import { RefreshControl, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { KeyboardScroll } from '@/components/KeyboardScroll';
+import { RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSession } from '@/context/SessionContext';
 import { supabase } from '@/lib/supabase';
@@ -51,7 +50,7 @@ export function HomeTabScreen() {
   }, [fetchLeagues]);
 
   return (
-    <KeyboardScroll
+    <ScrollView
       contentContainerStyle={styles.root}
       style={{ backgroundColor: '#000' }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
@@ -106,7 +105,7 @@ export function HomeTabScreen() {
           ))
         )}
       </View>
-    </KeyboardScroll>
+    </ScrollView>
   );
 }
 

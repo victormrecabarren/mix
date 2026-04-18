@@ -1,9 +1,8 @@
 import { useCallback, useState } from 'react';
 import {
-  RefreshControl, View, Text, StyleSheet, TouchableOpacity,
+  RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Share, Alert,
 } from 'react-native';
-import { KeyboardScroll } from '@/components/KeyboardScroll';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 
@@ -102,7 +101,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
   }
 
   return (
-    <KeyboardScroll
+    <ScrollView
       contentContainerStyle={styles.root}
       style={{ backgroundColor: '#000' }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
@@ -183,7 +182,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
           </View>
         ))}
       </View>
-    </KeyboardScroll>
+    </ScrollView>
   );
 }
 

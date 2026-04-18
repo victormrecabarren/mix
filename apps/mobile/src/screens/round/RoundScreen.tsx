@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   RefreshControl,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
   View,
   Text,
   StyleSheet,
@@ -10,7 +13,6 @@ import {
   Alert,
   Image,
 } from "react-native";
-import { KeyboardScroll } from "@/components/KeyboardScroll";
 import { useRouter, useFocusEffect } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
@@ -1036,12 +1038,17 @@ export function RoundScreen({
   };
 
   return (
-    <KeyboardScroll
-      contentContainerStyle={styles.root}
-      style={{ backgroundColor: "#000" }}
-      enableOnAndroid
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: "#000" }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={88}
     >
+      <ScrollView
+        contentContainerStyle={styles.root}
+        style={{ backgroundColor: "#000" }}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+      >
       <View style={styles.roundMeta}>
         <Text style={styles.roundTitle}>{round.prompt}</Text>
         <Text style={[styles.phaseBadge, { color: phaseColor[phase] }]}>
@@ -1106,7 +1113,8 @@ export function RoundScreen({
       )}
 
       {phase === "results" && <ResultsPhase submissions={submissions} roundId={round.id} />}
-    </KeyboardScroll>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
