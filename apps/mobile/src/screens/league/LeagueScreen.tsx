@@ -1,9 +1,8 @@
 import { useCallback, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
+  RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Share, Alert,
 } from 'react-native';
-import { RefreshScroll } from '@/components/RefreshHeader';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 
@@ -65,6 +64,13 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  }, [fetchData]);
+
   const isCommissioner = league?.admin_user_id === supabaseUserId;
 
   const handleNewSeason = async () => {
@@ -95,10 +101,10 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
   }
 
   return (
-    <RefreshScroll
+    <ScrollView
       contentContainerStyle={styles.root}
       style={{ backgroundColor: '#000' }}
-      onRefresh={fetchData}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
     >
       {isCommissioner && <Text style={styles.commissionerBadge}>COMMISSIONER</Text>}
 
@@ -176,7 +182,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
           </View>
         ))}
       </View>
-    </RefreshScroll>
+    </ScrollView>
   );
 }
 

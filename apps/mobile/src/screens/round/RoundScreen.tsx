@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  RefreshControl,
+  ScrollView,
   KeyboardAvoidingView,
   Platform,
   View,
@@ -12,7 +14,6 @@ import {
   Image,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
-import { RefreshScroll } from "@/components/RefreshHeader";
 import { supabase } from "@/lib/supabase";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
 
@@ -976,6 +977,13 @@ export function RoundScreen({
     }, [fetchData]),
   );
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  }, [fetchData]);
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -1035,11 +1043,11 @@ export function RoundScreen({
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={88}
     >
-      <RefreshScroll
+      <ScrollView
         contentContainerStyle={styles.root}
         style={{ backgroundColor: "#000" }}
         keyboardShouldPersistTaps="handled"
-        onRefresh={fetchData}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
       >
       <View style={styles.roundMeta}>
         <Text style={styles.roundTitle}>{round.prompt}</Text>
@@ -1105,7 +1113,7 @@ export function RoundScreen({
       )}
 
       {phase === "results" && <ResultsPhase submissions={submissions} roundId={round.id} />}
-      </RefreshScroll>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
