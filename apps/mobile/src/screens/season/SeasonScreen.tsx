@@ -34,8 +34,15 @@ type Member = {
   display_name: string;
 };
 
-function roundStatus(round: Round): { label: string; color: string } {
+function getRoundEffectiveStatus(rounds: Round[], index: number): { label: string; color: string } {
   const now = Date.now();
+  const isCompleted = (r: Round) => now >= new Date(r.voting_deadline_at).getTime();
+
+  // Round is only active if all previous rounds are completed
+  const prevCompleted = index === 0 || isCompleted(rounds[index - 1]);
+  if (!prevCompleted) return { label: 'UPCOMING', color: '#444' };
+
+  const round = rounds[index];
   const subDeadline = new Date(round.submission_deadline_at).getTime();
   const voteDeadline = new Date(round.voting_deadline_at).getTime();
   if (now < subDeadline) return { label: 'SUBMISSIONS OPEN', color: '#1DB954' };
@@ -397,8 +404,8 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
               <Text style={styles.emptyText}>No rounds yet.</Text>
             </View>
           ) : (
-            rounds.map((round) => {
-              const { label, color } = roundStatus(round);
+            rounds.map((round, index) => {
+              const { label, color } = getRoundEffectiveStatus(rounds, index);
               return (
                 <TouchableOpacity
                   key={round.id}
