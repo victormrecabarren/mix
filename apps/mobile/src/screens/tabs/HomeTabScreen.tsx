@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { RefreshScroll } from '@/components/RefreshHeader';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSession } from '@/context/SessionContext';
 import { supabase } from '@/lib/supabase';
@@ -42,18 +43,11 @@ export function HomeTabScreen() {
 
   useFocusEffect(useCallback(() => { fetchLeagues(); }, [fetchLeagues]));
 
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await fetchLeagues();
-    setRefreshing(false);
-  }, [fetchLeagues]);
-
   return (
-    <ScrollView
+    <RefreshScroll
       contentContainerStyle={styles.root}
       style={{ backgroundColor: '#000' }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+      onRefresh={fetchLeagues}
     >
       {/* Header */}
       <View style={styles.header}>
@@ -105,7 +99,7 @@ export function HomeTabScreen() {
           ))
         )}
       </View>
-    </ScrollView>
+    </RefreshScroll>
   );
 }
 

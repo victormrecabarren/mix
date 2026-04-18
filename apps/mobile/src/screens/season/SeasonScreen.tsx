@@ -1,9 +1,10 @@
 import { useCallback, useState } from 'react';
 import {
-  RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
   Modal, TextInput, Alert,
 } from 'react-native';
-import { KeyboardScroll } from '@/components/KeyboardScroll'; // used inside modals only
+import { KeyboardScroll } from '@/components/KeyboardScroll';
+import { RefreshScroll } from '@/components/RefreshHeader';
 import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -408,13 +409,6 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await fetchData();
-    setRefreshing(false);
-  }, [fetchData]);
-
   const isCommissioner = season?.leagues?.admin_user_id === userId;
 
   if (loading) {
@@ -437,10 +431,10 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
 
   return (
     <>
-      <ScrollView
+      <RefreshScroll
         contentContainerStyle={styles.root}
         style={{ backgroundColor: '#000' }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+        onRefresh={fetchData}
       >
         {/* ── Season header ── */}
         <View style={styles.titleRow}>
@@ -557,7 +551,7 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
             ))}
           </View>
         )}
-      </ScrollView>
+      </RefreshScroll>
 
       {/* ── Season edit modal ── */}
       {isCommissioner && (
