@@ -136,15 +136,18 @@ async function spotifyToken(env) {
 }
 
 async function recommendedTracks(token, genre, limit) {
+  // /v1/recommendations was deprecated for new apps in 2024 — use search instead
   const res = await fetch(
-    `https://api.spotify.com/v1/recommendations?seed_genres=${genre}&limit=${limit}`,
+    `https://api.spotify.com/v1/search?q=${encodeURIComponent(genre)}&type=track&limit=10`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
   const text = await res.text();
   let data;
-  try { data = JSON.parse(text); } catch { throw new Error(`Spotify recommendations non-JSON (${res.status}): ${text.slice(0, 200)}`); }
-  if (!res.ok) throw new Error(`Spotify recommendations error (${res.status}): ${JSON.stringify(data)}`);
-  return data.tracks ?? [];
+  try { data = JSON.parse(text); } catch { throw new Error(`Spotify search non-JSON (${res.status}): ${text.slice(0, 200)}`); }
+  if (!res.ok) throw new Error(`Spotify search error (${res.status}): ${JSON.stringify(data)}`);
+  const tracks = data.tracks?.items ?? [];
+  // Shuffle so each fake player gets different tracks
+  return tracks.sort(() => Math.random() - 0.5).slice(0, limit);
 }
 
 // ─── Point distribution ───────────────────────────────────────────────────────
