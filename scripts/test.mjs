@@ -3,20 +3,33 @@
 //
 // Commands:
 //   node scripts/test.mjs setup-players --league <id>
-//     Create fake players A, B, C in Supabase auth and add them to the league.
-//     Run once per league. Saves player IDs to scripts/.test-state.json.
+//     Create fake players A, B, C (if not already created) and add to league.
+//     Safe to re-run for new leagues — skips creation if player already exists.
+//     D and E are excluded; use create-user / join for their flows.
 //
-//   node scripts/test.mjs advance --round <id> --subs-close <seconds> [--vote-close <seconds>]
-//     Set the round's deadlines relative to now.
+//   node scripts/test.mjs create-user --player <D|E>
+//     Create a user account with no league membership.
+//     Simulates a user who signed up organically and hasn't joined anything yet.
+//     Run this before join for the "existing user gets invited" flow (E's flow).
+//     For the "invite creates account + joins in one step" flow (D's flow), skip
+//     this and go straight to join — it will create the user automatically.
+//
+//   node scripts/test.mjs join --player <A-E> --invite <url-or-token>
+//     Join a league via invite link or raw token.
+//     If the player has no saved ID (e.g. D, first time): creates account + joins.
+//     If the player already has a saved ID (e.g. E after create-user): just joins.
+//
+//   node scripts/test.mjs advance --round <id> [--subs-close <s>] [--vote-close <s>]
+//     Set round deadlines relative to now.
 //     --subs-close  seconds until submissions close  (default: 20)
 //     --vote-close  seconds until voting closes      (default: subs-close + 120)
 //
-//   node scripts/test.mjs submit --player <A|B|C> --round <id>
-//     Submit Spotify-recommended tracks for a fake player.
-//     A = hip-hop, B = rock, C = pop
+//   node scripts/test.mjs submit --player <A-E> --round <id>
+//     Fetch genre-matched Spotify recommendations and submit tracks.
+//     A=hip-hop  B=rock  C=pop  D=electronic  E=jazz
 //
-//   node scripts/test.mjs vote --player <A|B|C> --round <id>
-//     Distribute points randomly and leave a comment for a fake player.
+//   node scripts/test.mjs vote --player <A-E> --round <id>
+//     Distribute points randomly and leave a comment.
 //
 // Setup: copy scripts/.env.test.example → scripts/.env.test and fill in values.
 
@@ -30,16 +43,25 @@ const STATE_PATH = join(__dir, '.test-state.json');
 
 // ─── Player config ────────────────────────────────────────────────────────────
 
+// A, B, C are the core players created via setup-players.
+// D and E are reserve players for mid-season / join-flow testing.
 const PLAYERS = {
   A: { name: 'Player A', email: 'player-a@test.mix', genre: 'hip-hop' },
   B: { name: 'Player B', email: 'player-b@test.mix', genre: 'rock' },
   C: { name: 'Player C', email: 'player-c@test.mix', genre: 'pop' },
+  D: { name: 'Player D', email: 'player-d@test.mix', genre: 'electronic' },
+  E: { name: 'Player E', email: 'player-e@test.mix', genre: 'jazz' },
 };
+
+// D and E excluded from setup-players — only created on demand
+const CORE_PLAYERS = ['A', 'B', 'C'];
 
 const COMMENTS = {
   A: ['hard', 'this slaps', 'bars on bars', 'fire', 'no skip'],
   B: ['riff is insane', 'heavy', 'classic vibes', 'banger', 'guitar gods'],
   C: ['so catchy', 'love the hook', "can't stop listening", 'perfect pop', 'earworm'],
+  D: ['the drop is everything', 'certified banger', 'pure energy', 'this one goes off', 'dark and deep'],
+  E: ['smooth', 'late night vibes', 'the chord changes', 'real musicianship', 'this is art'],
 };
 
 // ─── Env + state ─────────────────────────────────────────────────────────────
@@ -145,34 +167,37 @@ async function setupPlayers(env, args) {
   const state = loadState();
   if (!state.players) state.players = {};
 
-  for (const [key, player] of Object.entries(PLAYERS)) {
+  for (const key of CORE_PLAYERS) {
+    const player = PLAYERS[key];
     console.log(`\nSetting up Player ${key} (${player.name})...`);
 
-    // Create auth user
-    const createRes = await sb(env, '/auth/v1/admin/users', 'POST', {
-      email: player.email,
-      password: 'TestPassword123!',
-      email_confirm: true,
-    });
+    let userId = state.players[key];
 
-    let userId;
-    if (createRes.ok && createRes.data?.id) {
-      userId = createRes.data.id;
-      console.log(`  ✓ Auth user created: ${userId}`);
-    } else if (state.players[key]) {
-      userId = state.players[key];
-      console.log(`  Already exists — using saved ID: ${userId}`);
+    if (userId) {
+      console.log(`  Already created — using saved ID: ${userId}`);
     } else {
-      console.error(`  Failed to create auth user and no saved ID found.`);
-      console.error(`  Response:`, createRes.data);
-      process.exit(1);
+      // First time: create auth user
+      const createRes = await sb(env, '/auth/v1/admin/users', 'POST', {
+        email: player.email,
+        password: 'TestPassword123!',
+        email_confirm: true,
+      });
+
+      if (createRes.ok && createRes.data?.id) {
+        userId = createRes.data.id;
+        console.log(`  ✓ Auth user created: ${userId}`);
+      } else {
+        console.error(`  Failed to create auth user for Player ${key}.`);
+        console.error(`  Response:`, createRes.data);
+        process.exit(1);
+      }
+
+      state.players[key] = userId;
+
+      // Upsert into public.users
+      await sb(env, '/rest/v1/users', 'POST', { id: userId, display_name: player.name },
+        { Prefer: 'resolution=merge-duplicates,return=representation' });
     }
-
-    state.players[key] = userId;
-
-    // Upsert into public.users
-    await sb(env, '/rest/v1/users', 'POST', { id: userId, display_name: player.name },
-      { Prefer: 'resolution=merge-duplicates,return=representation' });
 
     // Add to league_members (ignore if already there)
     const memberRes = await sb(env, '/rest/v1/league_members', 'POST',
@@ -316,15 +341,68 @@ async function voteForPlayer(env, args) {
   }
 }
 
+// Shared helper: create auth user + public.users entry, save to state
+async function createAuthUser(env, state, key) {
+  const player = PLAYERS[key];
+  const createRes = await sb(env, '/auth/v1/admin/users', 'POST', {
+    email: player.email,
+    password: 'TestPassword123!',
+    email_confirm: true,
+  });
+
+  if (!createRes.ok || !createRes.data?.id) {
+    console.error(`  Failed to create auth user for Player ${key}:`, createRes.data);
+    process.exit(1);
+  }
+
+  const userId = createRes.data.id;
+  await sb(env, '/rest/v1/users', 'POST', { id: userId, display_name: player.name },
+    { Prefer: 'resolution=merge-duplicates,return=representation' });
+
+  state.players[key] = userId;
+  saveState(state);
+  return userId;
+}
+
+async function createUser(env, args) {
+  const key = args.player?.toUpperCase();
+  if (!key) { console.error('Usage: create-user --player <D|E>'); process.exit(1); }
+  if (!PLAYERS[key]) { console.error(`Unknown player "${key}".`); process.exit(1); }
+
+  const state = loadState();
+  if (!state.players) state.players = {};
+
+  if (state.players[key]) {
+    console.log(`Player ${key} already exists (${state.players[key]}) — nothing to do.`);
+    return;
+  }
+
+  console.log(`Creating Player ${key} (${PLAYERS[key].name}) with no league...`);
+  const userId = await createAuthUser(env, state, key);
+  console.log(`✓ Player ${key} created: ${userId}`);
+  console.log(`  No league joined. Run join when ready to invite them.`);
+}
+
 async function joinForPlayer(env, args) {
   const key = args.player?.toUpperCase();
   const inviteArg = args.invite;
-  if (!key || !inviteArg) { console.error('Usage: join --player <A|B|C> --invite <url-or-token>'); process.exit(1); }
-  if (!PLAYERS[key]) { console.error(`Unknown player "${key}". Use A, B, or C.`); process.exit(1); }
+  if (!key || !inviteArg) { console.error('Usage: join --player <A|B|C|D|E> --invite <url-or-token>'); process.exit(1); }
+  if (!PLAYERS[key]) { console.error(`Unknown player "${key}". Use A–E.`); process.exit(1); }
 
   const state = loadState();
-  const userId = state.players?.[key];
-  if (!userId) { console.error(`No saved ID for Player ${key} — run setup-players first`); process.exit(1); }
+  if (!state.players) state.players = {};
+
+  let userId = state.players[key];
+
+  if (userId) {
+    // Warm join: user already exists (e.g. E who signed up earlier)
+    console.log(`Player ${key} already exists (${userId}) — joining league directly.`);
+  } else {
+    // Cold join: no account yet — create user first, then join (e.g. D's flow)
+    console.log(`Player ${key} has no account yet — creating one before joining...`);
+    userId = await createAuthUser(env, state, key);
+    console.log(`  ✓ Auth user created: ${userId}`);
+  }
 
   // Extract UUID token from a full URL or accept a bare UUID
   const tokenMatch = inviteArg.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
@@ -362,6 +440,7 @@ const env = loadEnv();
 
 const commands = {
   'setup-players': setupPlayers,
+  'create-user':   createUser,
   join:            joinForPlayer,
   advance:         advanceRound,
   submit:          submitForPlayer,
@@ -373,10 +452,11 @@ if (!fn) {
   console.log('Usage: node scripts/test.mjs <command> [options]');
   console.log('');
   console.log('  setup-players  --league <id>');
-  console.log('  join           --player <A|B|C> --invite <url-or-token>');
+  console.log('  create-user    --player <D|E>');
+  console.log('  join           --player <A-E> --invite <url-or-token>');
   console.log('  advance        --round <id> [--subs-close <s>] [--vote-close <s>]');
-  console.log('  submit         --player <A|B|C> --round <id>');
-  console.log('  vote           --player <A|B|C> --round <id>');
+  console.log('  submit         --player <A-E> --round <id>');
+  console.log('  vote           --player <A-E> --round <id>');
   process.exit(1);
 }
 
