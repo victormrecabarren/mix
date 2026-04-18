@@ -20,9 +20,10 @@
 //     If the player already has a saved ID (e.g. E after create-user): just joins.
 //
 //   node scripts/test.mjs advance --round <id> [--subs-close <s>] [--vote-close <s>]
-//     Set round deadlines relative to now.
-//     --subs-close  seconds until submissions close  (default: 20)
-//     --vote-close  seconds until voting closes      (default: subs-close + 120)
+//     Set round deadlines relative to now. Pass at least one flag; only the
+//     flags you pass are updated, the others are left untouched.
+//     --subs-close  seconds until submissions close
+//     --vote-close  seconds until voting closes
 //
 //   node scripts/test.mjs submit --player <A-E> --round <id>
 //     Fetch genre-matched Spotify recommendations and submit tracks.
@@ -30,6 +31,16 @@
 //
 //   node scripts/test.mjs vote --player <A-E> --round <id>
 //     Distribute points randomly and leave a comment.
+//
+//   node scripts/test.mjs close-voting [--round <id>]
+//     Force the close_voting_rounds() RPC to run (same work as the cron tick).
+//     Marks non-voter round_participants as is_void and voids their incoming
+//     votes. If --round is given, also short-circuits voting_deadline_at = now()
+//     so the round is unambiguously past its deadline before close runs.
+//
+//   node scripts/test.mjs round-results --round <id>
+//     Dump the output of get_round_results for quick verification that
+//     forfeits sort to the bottom with points_effective = 0.
 //
 // Setup: copy scripts/.env.test.example → scripts/.env.test and fill in values.
 
@@ -93,9 +104,17 @@ function saveState(s) {
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) {
-      args[argv[i].slice(2)] = argv[i + 1] ?? true;
+    const tok = argv[i];
+    if (tok.startsWith('--')) {
+      args[tok.slice(2)] = argv[i + 1] ?? true;
       i++;
+    } else if (tok.startsWith('-') && tok.length > 1) {
+      // Lenient: accept single-dash form too (e.g. -vote-close 2)
+      args[tok.slice(1)] = argv[i + 1] ?? true;
+      i++;
+    } else {
+      console.error(`Unrecognized argument: "${tok}" (expected --flag value)`);
+      process.exit(1);
     }
   }
   return args;
@@ -226,21 +245,39 @@ async function advanceRound(env, args) {
   const roundId = args.round;
   if (!roundId) { console.error('Usage: advance --round <id> [--subs-close <s>] [--vote-close <s>]'); process.exit(1); }
 
-  const subsClose = parseInt(args['subs-close'] ?? '20', 10);
-  const voteClose = parseInt(args['vote-close'] ?? String(subsClose + 120), 10);
+  const hasSubs = args['subs-close'] !== undefined;
+  const hasVote = args['vote-close'] !== undefined;
+  if (!hasSubs && !hasVote) {
+    console.error('advance: pass at least one of --subs-close <s> or --vote-close <s>');
+    process.exit(1);
+  }
 
-  const subDeadline  = new Date(Date.now() + subsClose * 1000).toISOString();
-  const voteDeadline = new Date(Date.now() + voteClose * 1000).toISOString();
+  const patch = {};
+  let subMsg = null;
+  let voteMsg = null;
 
-  const res = await sb(env, `/rest/v1/rounds?id=eq.${roundId}`, 'PATCH', {
-    submission_deadline_at: subDeadline,
-    voting_deadline_at: voteDeadline,
-  });
+  if (hasSubs) {
+    const secs = parseInt(args['subs-close'], 10);
+    if (Number.isNaN(secs)) { console.error('--subs-close must be a number of seconds'); process.exit(1); }
+    const iso = new Date(Date.now() + secs * 1000).toISOString();
+    patch.submission_deadline_at = iso;
+    subMsg = `Submissions close in ${secs}s  →  ${iso}`;
+  }
+
+  if (hasVote) {
+    const secs = parseInt(args['vote-close'], 10);
+    if (Number.isNaN(secs)) { console.error('--vote-close must be a number of seconds'); process.exit(1); }
+    const iso = new Date(Date.now() + secs * 1000).toISOString();
+    patch.voting_deadline_at = iso;
+    voteMsg = `Voting closes in    ${secs}s  →  ${iso}`;
+  }
+
+  const res = await sb(env, `/rest/v1/rounds?id=eq.${roundId}`, 'PATCH', patch);
 
   if (res.ok) {
     console.log(`✓ Round updated`);
-    console.log(`  Submissions close in ${subsClose}s  →  ${subDeadline}`);
-    console.log(`  Voting closes in    ${voteClose}s  →  ${voteDeadline}`);
+    if (subMsg) console.log(`  ${subMsg}`);
+    if (voteMsg) console.log(`  ${voteMsg}`);
   } else {
     console.error('Failed:', res.data);
     process.exit(1);
@@ -315,9 +352,14 @@ async function voteForPlayer(env, args) {
   const subs = subsRes.data ?? [];
   if (subs.length === 0) { console.error('No submissions to vote on for this player'); process.exit(1); }
 
-  // Distribute points randomly across submissions
+  // Distribute points randomly across submissions.
+  // The votes table has a `points > 0` check, so drop any zero-point rows
+  // (distributePoints can leave some submissions at 0 when points < submissions).
   const pts = distributePoints(totalPoints, subs.length, maxPerTrack);
-  const votes = subs.map((s, i) => ({ submission_id: s.id, points: pts[i] }));
+  const votes = subs
+    .map((s, i) => ({ submission_id: s.id, points: pts[i] }))
+    .filter((v) => v.points > 0);
+  if (votes.length === 0) { console.error('No positive-point votes to submit'); process.exit(1); }
 
   // Call submit_votes RPC
   const rpcRes = await sb(env, '/rest/v1/rpc/submit_votes', 'POST', {
@@ -438,6 +480,60 @@ async function joinForPlayer(env, args) {
   }
 }
 
+async function closeVoting(env, args) {
+  const roundId = args.round;
+
+  if (roundId) {
+    const nowIso = new Date().toISOString();
+    const bump = await sb(env, `/rest/v1/rounds?id=eq.${roundId}`, 'PATCH', {
+      voting_deadline_at: nowIso,
+    });
+    if (!bump.ok) {
+      console.error('Failed to bump voting_deadline_at:', bump.data);
+      process.exit(1);
+    }
+    console.log(`✓ Round ${roundId} voting_deadline_at set to now()`);
+  }
+
+  const rpcRes = await sb(env, '/rest/v1/rpc/close_voting_rounds', 'POST', {});
+  if (!rpcRes.ok) {
+    console.error('close_voting_rounds RPC failed:', rpcRes.data);
+    process.exit(1);
+  }
+  console.log('✓ close_voting_rounds() ran');
+}
+
+async function roundResults(env, args) {
+  const roundId = args.round;
+  if (!roundId) { console.error('Usage: round-results --round <id>'); process.exit(1); }
+
+  const rpcRes = await sb(env, '/rest/v1/rpc/get_round_results', 'POST', { p_round_id: roundId });
+  if (!rpcRes.ok) {
+    console.error('get_round_results RPC failed:', rpcRes.data);
+    process.exit(1);
+  }
+
+  const rows = Array.isArray(rpcRes.data) ? rpcRes.data : [];
+  if (rows.length === 0) {
+    console.log('No submissions for this round.');
+    return;
+  }
+
+  console.log(`\nRound ${roundId} — ${rows.length} submission(s)\n`);
+  console.log('status  points  effective  submitter           track');
+  console.log('------  ------  ---------  -------------------  --------------------');
+  let rank = 0;
+  rows.forEach((r) => {
+    const status = r.is_void ? 'VOID  ' : `#${String(++rank).padEnd(5)}`;
+    const raw = String(r.points_raw).padStart(6);
+    const eff = String(r.points_effective).padStart(9);
+    const name = (r.display_name ?? '').padEnd(19).slice(0, 19);
+    const track = `${r.track_title} — ${r.track_artist}`.slice(0, 40);
+    console.log(`${status}  ${raw}  ${eff}  ${name}  ${track}`);
+  });
+  console.log('');
+}
+
 // ─── Entry ────────────────────────────────────────────────────────────────────
 
 const [,, command, ...rest] = process.argv;
@@ -445,12 +541,14 @@ const args = parseArgs(rest);
 const env = loadEnv();
 
 const commands = {
-  'setup-players': setupPlayers,
-  'create-user':   createUser,
-  join:            joinForPlayer,
-  advance:         advanceRound,
-  submit:          submitForPlayer,
-  vote:            voteForPlayer,
+  'setup-players':  setupPlayers,
+  'create-user':    createUser,
+  join:             joinForPlayer,
+  advance:          advanceRound,
+  submit:           submitForPlayer,
+  vote:             voteForPlayer,
+  'close-voting':   closeVoting,
+  'round-results':  roundResults,
 };
 
 const fn = commands[command];
@@ -463,6 +561,8 @@ if (!fn) {
   console.log('  advance        --round <id> [--subs-close <s>] [--vote-close <s>]');
   console.log('  submit         --player <A-E> --round <id>');
   console.log('  vote           --player <A-E> --round <id>');
+  console.log('  close-voting   [--round <id>]');
+  console.log('  round-results  --round <id>');
   process.exit(1);
 }
 

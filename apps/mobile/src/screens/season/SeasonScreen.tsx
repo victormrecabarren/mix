@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
   Modal, TextInput, Alert,
@@ -35,19 +35,40 @@ type Member = {
   display_name: string;
 };
 
-function getRoundEffectiveStatus(rounds: Round[], index: number): { label: string; color: string; isActive: boolean } {
+type StandingRow = {
+  user_id: string;
+  display_name: string;
+  total_points: number;
+  rounds_played: number;
+  rounds_forfeited: number;
+  member_role: string;
+};
+
+function withStandingsRanks(rows: StandingRow[]): (StandingRow & { displayRank: number })[] {
+  let rank = 1;
+  return rows.map((row, i) => {
+    if (i > 0 && row.total_points < rows[i - 1].total_points) {
+      rank = i + 1;
+    }
+    return { ...row, displayRank: rank };
+  });
+}
+
+type RoundStage = 'upcoming' | 'submissions' | 'voting' | 'completed';
+
+function getRoundEffectiveStatus(rounds: Round[], index: number): { label: string; color: string; isActive: boolean; stage: RoundStage } {
   const now = Date.now();
   const isCompleted = (r: Round) => now >= new Date(r.voting_deadline_at).getTime();
 
   const prevCompleted = index === 0 || isCompleted(rounds[index - 1]);
-  if (!prevCompleted) return { label: 'UPCOMING', color: '#444', isActive: false };
+  if (!prevCompleted) return { label: 'UPCOMING', color: '#444', isActive: false, stage: 'upcoming' };
 
   const round = rounds[index];
   const subDeadline = new Date(round.submission_deadline_at).getTime();
   const voteDeadline = new Date(round.voting_deadline_at).getTime();
-  if (now < subDeadline) return { label: 'SUBMISSIONS OPEN', color: '#1DB954', isActive: true };
-  if (now < voteDeadline) return { label: 'VOTING OPEN', color: '#f0a500', isActive: true };
-  return { label: 'COMPLETED', color: '#555', isActive: false };
+  if (now < subDeadline) return { label: 'SUBMISSIONS OPEN', color: '#1DB954', isActive: true, stage: 'submissions' };
+  if (now < voteDeadline) return { label: 'VOTING OPEN', color: '#f0a500', isActive: true, stage: 'voting' };
+  return { label: 'COMPLETED', color: '#555', isActive: false, stage: 'completed' };
 }
 
 function formatDate(iso: string) {
@@ -242,44 +263,84 @@ function SeasonEditModal({ season, visible, onClose, onSaved }: {
   );
 }
 
-// ─── Round edit modal ─────────────────────────────────────────────────────────
+// ─── Round form modal (create + edit) ────────────────────────────────────────
 
-type RoundEditForm = {
+type RoundFormValues = {
   prompt: string;
   description: string;
   submissionDeadline: Date;
   votingDeadline: Date;
 };
 
-function RoundEditModal({ round, visible, onClose, onSaved }: {
-  round: Round;
+type RoundFormMode =
+  | { kind: 'edit'; round: Round }
+  | { kind: 'create'; seasonId: string; nextRoundNumber: number };
+
+function defaultCreateForm(): RoundFormValues {
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+  return {
+    prompt: '',
+    description: '',
+    submissionDeadline: new Date(now + 7 * DAY),
+    votingDeadline: new Date(now + 10 * DAY),
+  };
+}
+
+function RoundFormModal({ mode, visible, onClose, onSaved }: {
+  mode: RoundFormMode;
   visible: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [form, setForm] = useState<RoundEditForm>({
-    prompt: round.prompt,
-    description: round.description,
-    submissionDeadline: new Date(round.submission_deadline_at),
-    votingDeadline: new Date(round.voting_deadline_at),
-  });
+  const [form, setForm] = useState<RoundFormValues>(
+    mode.kind === 'edit'
+      ? {
+          prompt: mode.round.prompt,
+          description: mode.round.description,
+          submissionDeadline: new Date(mode.round.submission_deadline_at),
+          votingDeadline: new Date(mode.round.voting_deadline_at),
+        }
+      : defaultCreateForm(),
+  );
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     if (!form.prompt.trim()) { Alert.alert('Prompt required'); return; }
     if (!form.description.trim()) { Alert.alert('Description required'); return; }
+    if (form.votingDeadline.getTime() <= form.submissionDeadline.getTime()) {
+      Alert.alert('Voting deadline must be after submission deadline'); return;
+    }
+
     setSaving(true);
-    const { error } = await supabase.from('rounds').update({
-      prompt: form.prompt.trim(),
-      description: form.description.trim(),
-      submission_deadline_at: form.submissionDeadline.toISOString(),
-      voting_deadline_at: form.votingDeadline.toISOString(),
-    }).eq('id', round.id);
+    const { error } = mode.kind === 'edit'
+      ? await supabase.from('rounds').update({
+          prompt: form.prompt.trim(),
+          description: form.description.trim(),
+          submission_deadline_at: form.submissionDeadline.toISOString(),
+          voting_deadline_at: form.votingDeadline.toISOString(),
+        }).eq('id', mode.round.id)
+      : await supabase.from('rounds').insert({
+          season_id: mode.seasonId,
+          round_number: mode.nextRoundNumber,
+          prompt: form.prompt.trim(),
+          description: form.description.trim(),
+          submission_deadline_at: form.submissionDeadline.toISOString(),
+          voting_deadline_at: form.votingDeadline.toISOString(),
+        });
     setSaving(false);
-    if (error) { Alert.alert('Save failed', error.message); return; }
+    if (error) {
+      Alert.alert(mode.kind === 'edit' ? 'Save failed' : 'Create failed', error.message);
+      return;
+    }
     onSaved();
     onClose();
   };
+
+  const title = mode.kind === 'edit'
+    ? `Edit Round ${mode.round.round_number}`
+    : `New Round ${mode.nextRoundNumber}`;
+  const ctaLabel = mode.kind === 'edit' ? 'Save' : 'Create';
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -289,9 +350,9 @@ function RoundEditModal({ round, visible, onClose, onSaved }: {
             <TouchableOpacity onPress={onClose}>
               <Text style={styles.modalCancel}>Cancel</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Edit Round {round.round_number}</Text>
+            <Text style={styles.modalTitle}>{title}</Text>
             <TouchableOpacity onPress={save} disabled={saving}>
-              <Text style={[styles.modalSave, saving && { opacity: 0.4 }]}>Save</Text>
+              <Text style={[styles.modalSave, saving && { opacity: 0.4 }]}>{ctaLabel}</Text>
             </TouchableOpacity>
           </View>
 
@@ -302,6 +363,7 @@ function RoundEditModal({ round, visible, onClose, onSaved }: {
               value={form.prompt}
               onChangeText={(prompt) => setForm((f) => ({ ...f, prompt }))}
               multiline
+              placeholder="e.g. Songs that feel like summer"
               placeholderTextColor="#555"
               autoFocus
             />
@@ -312,6 +374,7 @@ function RoundEditModal({ round, visible, onClose, onSaved }: {
               value={form.description}
               onChangeText={(description) => setForm((f) => ({ ...f, description }))}
               multiline
+              placeholder="Extra context or rules for the round"
               placeholderTextColor="#555"
             />
 
@@ -329,7 +392,7 @@ function RoundEditModal({ round, visible, onClose, onSaved }: {
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
-type Tab = 'rounds' | 'members';
+type Tab = 'rounds' | 'standings';
 
 export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueId?: string }) {
   const router = useRouter();
@@ -338,12 +401,16 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
   const [season, setSeason] = useState<Season | null>(null);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [standings, setStandings] = useState<StandingRow[]>([]);
   const [submittersByRound, setSubmittersByRound] = useState<Record<string, string[]>>({});
+  const [votersByRound, setVotersByRound] = useState<Record<string, string[]>>({});
+  const [forfeitsByRound, setForfeitsByRound] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('rounds');
 
   const [editingSeasonOpen, setEditingSeasonOpen] = useState(false);
   const [editingRound, setEditingRound] = useState<Round | null>(null);
+  const [creatingRound, setCreatingRound] = useState(false);
 
   const fetchData = useCallback(async () => {
     const [{ data: { user } }, { data: rawSeasonData }] = await Promise.all([
@@ -365,7 +432,7 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
 
     const league = Array.isArray(seasonData.leagues) ? seasonData.leagues[0] : seasonData.leagues;
 
-    const [{ data: roundsData }, { data: membersData }] = await Promise.all([
+    const [{ data: roundsData }, { data: membersData }, standingsRes] = await Promise.all([
       supabase
         .from('rounds')
         .select('id, round_number, prompt, description, submission_deadline_at, voting_deadline_at')
@@ -376,12 +443,22 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
         .select('user_id, role, users(display_name)')
         .eq('league_id', seasonData.league_id)
         .order('joined_at', { ascending: true }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.rpc as any)('get_season_standings', { p_season_id: seasonId }),
     ]);
 
     const roundIds = (roundsData ?? []).map((r) => r.id);
-    const { data: subsData } = roundIds.length > 0
-      ? await supabase.from('submissions').select('round_id, user_id').in('round_id', roundIds)
-      : { data: [] };
+    const [
+      { data: subsData },
+      { data: votesData },
+      { data: participantsData },
+    ] = roundIds.length > 0
+      ? await Promise.all([
+          supabase.from('submissions').select('round_id, user_id').in('round_id', roundIds),
+          supabase.from('votes').select('round_id, voter_user_id').in('round_id', roundIds),
+          supabase.from('round_participants').select('round_id, is_void').in('round_id', roundIds),
+        ])
+      : [{ data: [] }, { data: [] }, { data: [] }];
 
     // Build map: roundId → unique user_ids who submitted
     const byRound: Record<string, string[]> = {};
@@ -390,9 +467,24 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
       if (!byRound[sub.round_id].includes(sub.user_id)) byRound[sub.round_id].push(sub.user_id);
     }
 
+    // Build map: roundId → unique voter_user_ids
+    const votersBy: Record<string, string[]> = {};
+    for (const v of (votesData ?? [])) {
+      if (!votersBy[v.round_id]) votersBy[v.round_id] = [];
+      if (!votersBy[v.round_id].includes(v.voter_user_id)) votersBy[v.round_id].push(v.voter_user_id);
+    }
+
+    // Build map: roundId → forfeit count (participants flagged is_void)
+    const forfeitsBy: Record<string, number> = {};
+    for (const p of (participantsData ?? [])) {
+      if (p.is_void) forfeitsBy[p.round_id] = (forfeitsBy[p.round_id] ?? 0) + 1;
+    }
+
     setSeason({ ...seasonData, leagues: league ?? null });
     setRounds(roundsData ?? []);
     setSubmittersByRound(byRound);
+    setVotersByRound(votersBy);
+    setForfeitsByRound(forfeitsBy);
     setMembers(
       (membersData ?? []).map((m) => ({
         user_id: m.user_id,
@@ -403,6 +495,16 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
             : (m.users as { display_name: string } | null)?.display_name) ?? 'Unknown',
       })),
     );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sr = standingsRes as any;
+    if (sr.error) {
+      console.warn('get_season_standings:', sr.error.message);
+      setStandings([]);
+    } else {
+      setStandings(Array.isArray(sr.data) ? sr.data : []);
+    }
+
     setLoading(false);
   }, [seasonId]);
 
@@ -414,6 +516,44 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
     await fetchData();
     setRefreshing(false);
   }, [fetchData]);
+
+  const sortedByRoundNumber = useMemo(
+    () => [...rounds].sort((a, b) => a.round_number - b.round_number),
+    [rounds],
+  );
+
+  const statusByRoundId = useMemo(() => {
+    const m: Record<string, { label: string; color: string; isActive: boolean; stage: RoundStage }> = {};
+    sortedByRoundNumber.forEach((round, index) => {
+      m[round.id] = getRoundEffectiveStatus(sortedByRoundNumber, index);
+    });
+    return m;
+  }, [sortedByRoundNumber]);
+
+  const incompleteRounds = useMemo(
+    () =>
+      sortedByRoundNumber
+        .filter((r) => statusByRoundId[r.id]?.stage !== 'completed')
+        .sort((a, b) => {
+          const aSt = statusByRoundId[a.id];
+          const bSt = statusByRoundId[b.id];
+          const aActive = aSt?.isActive === true;
+          const bActive = bSt?.isActive === true;
+          if (aActive !== bActive) return aActive ? -1 : 1;
+          return b.round_number - a.round_number;
+        }),
+    [sortedByRoundNumber, statusByRoundId],
+  );
+
+  const completedRounds = useMemo(
+    () =>
+      sortedByRoundNumber
+        .filter((r) => statusByRoundId[r.id]?.stage === 'completed')
+        .sort((a, b) => b.round_number - a.round_number),
+    [sortedByRoundNumber, statusByRoundId],
+  );
+
+  const standingsWithRank = useMemo(() => withStandingsRanks(standings), [standings]);
 
   const isCommissioner = season?.leagues?.admin_user_id === userId;
 
@@ -434,6 +574,70 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
   }
 
   const league = season.leagues;
+
+  const renderRoundCard = (round: Round) => {
+    const st = statusByRoundId[round.id];
+    const { label, color, isActive, stage } = st ?? {
+      label: '—',
+      color: '#555',
+      isActive: false,
+      stage: 'completed' as RoundStage,
+    };
+    const activeIds = stage === 'voting'
+      ? (votersByRound[round.id] ?? [])
+      : (submittersByRound[round.id] ?? []);
+    const doneMembers = members.filter((m) => activeIds.includes(m.user_id));
+    const waitingMembers = members.filter((m) => !activeIds.includes(m.user_id));
+    const doneLabel = stage === 'voting' ? 'Voted' : 'Submitted';
+    const forfeitCount = forfeitsByRound[round.id] ?? 0;
+
+    return (
+      <TouchableOpacity
+        key={round.id}
+        style={styles.roundCard}
+        activeOpacity={0.7}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onPress={() => router.push({ pathname: '/(tabs)/(stack)/round/[id]' as any, params: { id: round.id, seasonId } })}
+      >
+        <View style={styles.roundHeader}>
+          <Text style={styles.roundNumber}>Round {round.round_number}</Text>
+          <View style={styles.roundHeaderRight}>
+            <Text style={[styles.roundStatus, { color }]}>{label}</Text>
+            {isCommissioner && stage !== 'completed' && (
+              <TouchableOpacity
+                onPress={(e) => { e.stopPropagation(); setEditingRound(round); }}
+                style={styles.roundEditBtn}
+              >
+                <Text style={styles.roundEditBtnText}>Edit</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+        <Text style={styles.roundPrompt}>{round.prompt}</Text>
+        {!!round.description && <Text style={styles.roundDescription}>{round.description}</Text>}
+
+        {isActive && (
+          <View style={styles.submissionStatus}>
+            <AvatarStack members={doneMembers} label={doneLabel} color={stage === 'voting' ? '#f0a500' : '#1DB954'} />
+            {waitingMembers.length > 0 && (
+              <AvatarStack members={waitingMembers} label="Waiting" color="#555" />
+            )}
+          </View>
+        )}
+
+        {stage === 'completed' && forfeitCount > 0 && (
+          <Text style={styles.forfeitFootnote}>
+            {forfeitCount} {forfeitCount === 1 ? 'forfeit' : 'forfeits'} · non-voters lost their points
+          </Text>
+        )}
+
+        <View style={styles.roundDates}>
+          <Text style={styles.dateLabel}>Subs due <Text style={styles.dateValue}>{formatDate(round.submission_deadline_at)}</Text></Text>
+          <Text style={styles.dateLabel}>Votes due <Text style={styles.dateValue}>{formatDate(round.voting_deadline_at)}</Text></Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <>
@@ -467,11 +671,11 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tabBtn, tab === 'members' && styles.tabBtnActive]}
-            onPress={() => setTab('members')}
+            style={[styles.tabBtn, tab === 'standings' && styles.tabBtnActive]}
+            onPress={() => setTab('standings')}
           >
-            <Text style={[styles.tabBtnText, tab === 'members' && styles.tabBtnTextActive]}>
-              Members ({members.length})
+            <Text style={[styles.tabBtnText, tab === 'standings' && styles.tabBtnTextActive]}>
+              Standings
             </Text>
           </TouchableOpacity>
         </View>
@@ -484,77 +688,80 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
                 <Text style={styles.emptyText}>No rounds yet.</Text>
               </View>
             ) : (
-              rounds.map((round, index) => {
-                const { label, color, isActive } = getRoundEffectiveStatus(rounds, index);
-                const submittedIds = submittersByRound[round.id] ?? [];
-                const submittedMembers = members.filter((m) => submittedIds.includes(m.user_id));
-                const waitingMembers = members.filter((m) => !submittedIds.includes(m.user_id));
+              <>
+                {/* In-progress & upcoming: highest round number first (current action at top) */}
+                {incompleteRounds.map((round) => renderRoundCard(round))}
 
-                return (
-                  <TouchableOpacity
-                    key={round.id}
-                    style={styles.roundCard}
-                    activeOpacity={0.7}
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    onPress={() => router.push({ pathname: '/(tabs)/(stack)/round/[id]' as any, params: { id: round.id, seasonId } })}
-                  >
-                    <View style={styles.roundHeader}>
-                      <Text style={styles.roundNumber}>Round {round.round_number}</Text>
-                      <View style={styles.roundHeaderRight}>
-                        <Text style={[styles.roundStatus, { color }]}>{label}</Text>
-                        {isCommissioner && (
-                          <TouchableOpacity
-                            onPress={(e) => { e.stopPropagation(); setEditingRound(round); }}
-                            style={styles.roundEditBtn}
-                          >
-                            <Text style={styles.roundEditBtnText}>Edit</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    </View>
-                    <Text style={styles.roundPrompt}>{round.prompt}</Text>
-                    {!!round.description && <Text style={styles.roundDescription}>{round.description}</Text>}
+                {completedRounds.length > 0 && incompleteRounds.length > 0 && (
+                  <View style={styles.completedRoundsBreak}>
+                    <View style={styles.completedRoundsBreakLine} />
+                    <Text style={styles.completedRoundsBreakLabel}>Completed rounds</Text>
+                    <View style={styles.completedRoundsBreakLine} />
+                  </View>
+                )}
 
-                    {/* Submission status — only shown on active rounds */}
-                    {isActive && (
-                      <View style={styles.submissionStatus}>
-                        <AvatarStack members={submittedMembers} label="Submitted" color="#1DB954" />
-                        {waitingMembers.length > 0 && (
-                          <AvatarStack members={waitingMembers} label="Waiting" color="#555" />
-                        )}
-                      </View>
-                    )}
+                {completedRounds.length > 0 && incompleteRounds.length === 0 && (
+                  <Text style={styles.completedRoundsSectionTitle}>Completed rounds</Text>
+                )}
 
-                    <View style={styles.roundDates}>
-                      <Text style={styles.dateLabel}>Subs due <Text style={styles.dateValue}>{formatDate(round.submission_deadline_at)}</Text></Text>
-                      <Text style={styles.dateLabel}>Votes due <Text style={styles.dateValue}>{formatDate(round.voting_deadline_at)}</Text></Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })
+                {/* Finished rounds: highest round number first (most recent completion at top) */}
+                {completedRounds.map((round) => renderRoundCard(round))}
+              </>
+            )}
+
+            {isCommissioner && season.status === 'active' && (
+              <TouchableOpacity
+                style={styles.addRoundBtn}
+                onPress={() => setCreatingRound(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.addRoundBtnIcon}>+</Text>
+                <Text style={styles.addRoundBtnText}>Add Round</Text>
+              </TouchableOpacity>
             )}
           </View>
         )}
 
-        {/* ── Members tab ── */}
-        {tab === 'members' && (
+        {/* ── Standings tab (points from rounds whose voting has ended only) ── */}
+        {tab === 'standings' && (
           <View style={styles.section}>
-            {members.map((m) => (
-              <View key={m.user_id} style={styles.memberRow}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{m.display_name[0]?.toUpperCase() ?? '?'}</Text>
-                </View>
-                <Text style={styles.memberName}>{m.display_name}</Text>
-                <View style={styles.memberBadges}>
-                  {m.user_id === league?.admin_user_id && (
-                    <Text style={styles.commBadge}>COMM</Text>
-                  )}
-                  <Text style={[styles.roleBadge, m.role === 'spectator' && styles.roleBadgeSpectator]}>
-                    {m.role.toUpperCase()}
-                  </Text>
-                </View>
+            <Text style={styles.standingsHint}>
+              Totals include completed rounds only — they update after each round&apos;s voting deadline passes.
+            </Text>
+            {standingsWithRank.length === 0 ? (
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>No standings yet.</Text>
               </View>
-            ))}
+            ) : (
+              standingsWithRank.map((row) => (
+                <View key={row.user_id} style={styles.standingRow}>
+                  <Text style={styles.standingRank}>{row.displayRank}</Text>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{row.display_name[0]?.toUpperCase() ?? '?'}</Text>
+                  </View>
+                  <View style={styles.standingMeta}>
+                    <Text style={styles.standingName} numberOfLines={1}>{row.display_name}</Text>
+                    {(row.rounds_played > 0 || row.rounds_forfeited > 0) && (
+                      <Text style={styles.standingSub}>
+                        {row.rounds_played} {row.rounds_played === 1 ? 'round' : 'rounds'} played
+                        {row.rounds_forfeited > 0
+                          ? ` · ${row.rounds_forfeited} forfeit${row.rounds_forfeited === 1 ? '' : 's'}`
+                          : ''}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.standingBadges}>
+                    {row.user_id === league?.admin_user_id && (
+                      <Text style={styles.commBadge}>COMM</Text>
+                    )}
+                    <Text style={[styles.roleBadge, row.member_role === 'spectator' && styles.roleBadgeSpectator]}>
+                      {row.member_role.toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={styles.standingPts}>{row.total_points}</Text>
+                </View>
+              ))
+            )}
           </View>
         )}
       </ScrollView>
@@ -571,10 +778,24 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
 
       {/* ── Round edit modal ── */}
       {isCommissioner && editingRound && (
-        <RoundEditModal
-          round={editingRound}
+        <RoundFormModal
+          mode={{ kind: 'edit', round: editingRound }}
           visible={editingRound !== null}
           onClose={() => setEditingRound(null)}
+          onSaved={fetchData}
+        />
+      )}
+
+      {/* ── Round create modal ── */}
+      {isCommissioner && creatingRound && (
+        <RoundFormModal
+          mode={{
+            kind: 'create',
+            seasonId: season.id,
+            nextRoundNumber: (rounds[rounds.length - 1]?.round_number ?? 0) + 1,
+          }}
+          visible={creatingRound}
+          onClose={() => setCreatingRound(false)}
           onSaved={fetchData}
         />
       )}
@@ -606,6 +827,29 @@ const styles = StyleSheet.create({
 
   section: { gap: 12 },
 
+  completedRoundsBreak: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  completedRoundsBreakLine: { flex: 1, height: 1, backgroundColor: '#2a2a2a' },
+  completedRoundsBreakLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: '#666',
+  },
+  completedRoundsSectionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: '#666',
+    marginBottom: 4,
+    marginTop: 2,
+  },
+
   empty: { paddingVertical: 24, alignItems: 'center' },
   emptyText: { fontSize: 14, color: '#444' },
 
@@ -622,6 +866,40 @@ const styles = StyleSheet.create({
   dateLabel: { fontSize: 11, color: '#555' },
   dateValue: { color: '#888' },
 
+  // Add round CTA
+  addRoundBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#333',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 4,
+  },
+  addRoundBtnIcon: {
+    fontSize: 18,
+    color: '#1DB954',
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  addRoundBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1DB954',
+    letterSpacing: 0.3,
+  },
+
+  forfeitFootnote: {
+    fontSize: 11,
+    color: '#777',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+
   // Submission status on active round cards
   submissionStatus: { gap: 6, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#1a1a1a', marginTop: 2 },
   avatarStackRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -631,6 +909,40 @@ const styles = StyleSheet.create({
   avatarStackInitial: { fontSize: 10, fontWeight: '700', color: '#fff' },
   avatarStackOverflow: { backgroundColor: '#222' },
   avatarStackOverflowText: { fontSize: 9, fontWeight: '700', color: '#888' },
+
+  standingsHint: {
+    fontSize: 12,
+    color: '#666',
+    lineHeight: 17,
+    marginBottom: 4,
+  },
+  standingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#151515',
+  },
+  standingRank: {
+    width: 26,
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#666',
+    textAlign: 'center',
+  },
+  standingMeta: { flex: 1, minWidth: 0 },
+  standingName: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  standingSub: { fontSize: 11, color: '#555', marginTop: 3 },
+  standingBadges: { flexDirection: 'row', gap: 6, alignItems: 'center', flexShrink: 0 },
+  standingPts: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1DB954',
+    minWidth: 44,
+    textAlign: 'right',
+  },
 
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#222', alignItems: 'center', justifyContent: 'center' },
