@@ -37,6 +37,7 @@ type Round = {
 type SiblingRound = {
   id: string;
   round_number: number;
+  prompt: string;
   voting_deadline_at: string;
 };
 
@@ -933,7 +934,7 @@ export function RoundScreen({
     if (r.round_number > 1) {
       const { data: prev } = await supabase
         .from("rounds")
-        .select("id, round_number, voting_deadline_at")
+        .select("id, round_number, prompt, voting_deadline_at")
         .eq("season_id", r.season_id)
         .eq("round_number", r.round_number - 1)
         .single();
@@ -1067,7 +1068,7 @@ export function RoundScreen({
       {phase === "upcoming" && prevRound && (
         <View style={styles.upcomingCard}>
           <Text style={styles.upcomingText}>
-            Opens when Round {prevRound.round_number} voting closes on{" "}
+            Opens when "{prevRound.prompt}" closes on{" "}
             {formatDeadline(prevRound.voting_deadline_at)}
           </Text>
         </View>
