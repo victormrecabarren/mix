@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react';
 import {
-  ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
-  Modal, TextInput, Alert, Platform, KeyboardAvoidingView,
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
+  Modal, TextInput, Alert,
 } from 'react-native';
+import { KeyboardScroll } from '@/components/KeyboardScroll';
 import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -170,7 +171,7 @@ function SeasonEditModal({ season, visible, onClose, onSaved }: {
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.modalBody}>
+          <KeyboardScroll contentContainerStyle={styles.modalBody}>
             <Text style={styles.fieldLabel}>SEASON NAME</Text>
             <TextInput
               style={styles.modalInput}
@@ -200,7 +201,7 @@ function SeasonEditModal({ season, visible, onClose, onSaved }: {
               <Stepper value={form.maxPerTrack} onChange={(v) => setForm((f) => ({ ...f, maxPerTrack: v }))} min={1} max={form.pointsPerRound} />
               <Text style={styles.stepperUnit}>pts</Text>
             </View>
-          </ScrollView>
+          </KeyboardScroll>
         </View>
       </View>
     </Modal>
@@ -248,10 +249,7 @@ function RoundEditModal({ round, visible, onClose, onSaved }: {
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.modalOverlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <View style={styles.modalOverlay}>
         <View style={styles.modalSheet}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={onClose}>
@@ -263,7 +261,7 @@ function RoundEditModal({ round, visible, onClose, onSaved }: {
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+          <KeyboardScroll contentContainerStyle={styles.modalBody}>
             <Text style={styles.fieldLabel}>PROMPT</Text>
             <TextInput
               style={[styles.modalInput, { minHeight: 72, textAlignVertical: 'top' }]}
@@ -288,9 +286,9 @@ function RoundEditModal({ round, visible, onClose, onSaved }: {
 
             <Text style={[styles.fieldLabel, { marginTop: 20 }]}>VOTING DEADLINE</Text>
             <DateTimeField value={form.votingDeadline} onChange={(d) => setForm((f) => ({ ...f, votingDeadline: d }))} />
-          </ScrollView>
+          </KeyboardScroll>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -381,7 +379,7 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.root} style={{ backgroundColor: '#000' }}>
+      <KeyboardScroll contentContainerStyle={styles.root} style={{ backgroundColor: '#000' }}>
         <View style={styles.titleRow}>
           <Text style={styles.pageTitle}>{season.name}</Text>
           <View style={[styles.statusBadge, season.status === 'active' ? styles.statusActive : styles.statusDone]}>
@@ -460,7 +458,7 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
             </View>
           ))}
         </View>
-      </ScrollView>
+      </KeyboardScroll>
 
       {/* ── Season edit modal ── */}
       {isCommissioner && (

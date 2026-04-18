@@ -9,7 +9,7 @@ import {
   Alert,
   Image,
 } from "react-native";
-import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
+import { KeyboardScroll } from "@/components/KeyboardScroll";
 import { useRouter, useFocusEffect } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
@@ -594,7 +594,7 @@ function SubmissionPhase({
       </TouchableOpacity>
 
           <TouchableOpacity style={styles.secondaryActionBtn} onPress={() => router.back()}>
-        <Text style={styles.secondaryActionBtnText}>Back To Season</Text>
+        <Text style={styles.secondaryActionBtnText}>Back</Text>
       </TouchableOpacity>
     </View>
   );
@@ -1028,13 +1028,10 @@ export function RoundScreen({
   };
 
   return (
-    <KeyboardAwareScrollView
+    <KeyboardScroll
       contentContainerStyle={styles.root}
       style={{ backgroundColor: "#000" }}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="interactive"
       enableOnAndroid
-      extraScrollHeight={100}
     >
       <View style={styles.roundMeta}>
         <Text style={styles.roundTitle}>{round.prompt}</Text>
@@ -1079,7 +1076,7 @@ export function RoundScreen({
           round={round}
           userId={userId}
           mySubmissions={mySubmissions}
-          onSubmitted={fetchData}
+          onSubmitted={() => router.back()}
         />
       )}
 
@@ -1100,7 +1097,7 @@ export function RoundScreen({
       )}
 
       {phase === "results" && <ResultsPhase submissions={submissions} roundId={round.id} />}
-    </KeyboardAwareScrollView>
+    </KeyboardScroll>
   );
 }
 

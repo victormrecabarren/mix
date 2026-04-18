@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import {
-  ScrollView, View, Text, StyleSheet, TextInput, TouchableOpacity,
+  View, Text, StyleSheet, TextInput, TouchableOpacity,
   ActivityIndicator, Alert, Switch, Modal, Platform,
 } from 'react-native';
+import { KeyboardScroll } from '@/components/KeyboardScroll';
 import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { Stack, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -429,7 +430,7 @@ export function CreateSeasonFlow({ leagueId }: { leagueId: string }) {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <KeyboardScroll contentContainerStyle={styles.scroll}>
           {step === 1 && <StepSeason form={season} onChange={handleSeasonChange} />}
           {step === 2 && (
             <StepRounds
@@ -440,7 +441,7 @@ export function CreateSeasonFlow({ leagueId }: { leagueId: string }) {
               onRemove={removeRound}
             />
           )}
-        </ScrollView>
+        </KeyboardScroll>
 
         <View style={styles.footer}>
           {step === 1 ? (
