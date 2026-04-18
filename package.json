@@ -5,7 +5,13 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
-    "dev": "turbo run dev --parallel"
+    "dev": "turbo run dev --parallel",
+    "test:setup": "node scripts/test.mjs setup-players",
+    "test:create-user": "node scripts/test.mjs create-user",
+    "test:join": "node scripts/test.mjs join",
+    "test:advance": "node scripts/test.mjs advance",
+    "test:submit": "node scripts/test.mjs submit",
+    "test:vote": "node scripts/test.mjs vote"
   },
   "devDependencies": {
     "turbo": "^2.5.3"
