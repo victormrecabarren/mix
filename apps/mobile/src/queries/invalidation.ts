@@ -9,4 +9,8 @@ export const invalidations = {
   submitVotes: (qc: QueryClient, ctx: { roundId: string }) => {
     qc.invalidateQueries({ queryKey: queryKeys.round(ctx.roundId) });
   },
+  submitRoundEntries: (qc: QueryClient, ctx: { roundId: string }) => {
+    // A submit may auto-close the round, so refresh everything round-scoped.
+    qc.invalidateQueries({ queryKey: queryKeys.round(ctx.roundId) });
+  },
 };

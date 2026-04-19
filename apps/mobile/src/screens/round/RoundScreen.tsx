@@ -24,12 +24,18 @@ if (
 }
 import { useRouter, useFocusEffect } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { getValidAccessToken } from "@/lib/spotifyAuth";
 import { useRoundSubmissions } from "@/queries/useRoundSubmissions";
 import { useMyVotes } from "@/queries/useMyVotes";
 import { useSubmitVotes } from "@/queries/useSubmitVotes";
+import { useSubmitRoundEntries } from "@/queries/useSubmitRoundEntries";
 import { MixError } from "@/services/errors";
 import type { VoteInput, VoteCommentInput } from "@/services/votes";
+import type { SubmissionDraft } from "@/services/submissions";
+import {
+  searchSpotifyTracks,
+  getSpotifyTrack,
+  extractSpotifyTrackId,
+} from "@/services/spotifySearch";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -126,14 +132,6 @@ function formatDeadline(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function parseSpotifyTrackId(input: string): string | null {
-  const urlMatch = input.match(/spotify\.com\/track\/([a-zA-Z0-9]+)/);
-  if (urlMatch) return urlMatch[1];
-  const uriMatch = input.match(/spotify:track:([a-zA-Z0-9]+)/);
-  if (uriMatch) return uriMatch[1];
-  return null;
 }
 
 function submissionToTrack(submission: Submission): SpotifyTrack {
@@ -240,9 +238,10 @@ function SubmissionPhase({
 }) {
   const submissionsPerUser = round.seasons?.submissions_per_user ?? 1;
   const router = useRouter();
-  const [submitting, setSubmitting] = useState(false);
   const [drafts, setDrafts] = useState<DraftSubmission[]>([]);
   const searchRequestIds = useRef<Record<number, number>>({});
+  const submitMutation = useSubmitRoundEntries();
+  const submitting = submitMutation.isPending;
 
   const baselineDrafts = useMemo(
     () =>
@@ -299,32 +298,10 @@ function SubmissionPhase({
       setSearchState(slotIndex, { isSearching: true });
 
       try {
-        const token = await getValidAccessToken();
-        if (!token) throw new Error("Not logged in to Spotify");
-
-        const linkedTrackId = parseSpotifyTrackId(trimmed);
-        let nextResults: SpotifyTrack[] = [];
-
-        if (linkedTrackId) {
-          const res = await fetch(
-            `https://api.spotify.com/v1/tracks/${linkedTrackId}`,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            },
-          );
-          if (!res.ok) throw new Error(`Spotify lookup failed (${res.status})`);
-          const track = (await res.json()) as SpotifyTrack;
-          nextResults = [track];
-        } else {
-          const res = await fetch(
-            `https://api.spotify.com/v1/search?q=${encodeURIComponent(trimmed)}&type=track&limit=8`,
-            { headers: { Authorization: `Bearer ${token}` } },
-          );
-          const data = (await res.json()) as {
-            tracks?: { items: SpotifyTrack[] };
-          };
-          nextResults = data.tracks?.items ?? [];
-        }
+        const linkedTrackId = extractSpotifyTrackId(trimmed);
+        const nextResults = linkedTrackId
+          ? [await getSpotifyTrack(linkedTrackId)]
+          : await searchSpotifyTracks(trimmed);
 
         if (searchRequestIds.current[slotIndex] !== requestId) return;
         setSearchState(slotIndex, {
@@ -334,10 +311,8 @@ function SubmissionPhase({
       } catch (err) {
         if (searchRequestIds.current[slotIndex] !== requestId) return;
         setSearchState(slotIndex, { isSearching: false, searchResults: [] });
-        Alert.alert(
-          "Search failed",
-          err instanceof Error ? err.message : "Unknown error",
-        );
+        const message = err instanceof MixError ? err.message : "Unknown error";
+        Alert.alert("Search failed", message);
       }
     },
     [setSearchState],
@@ -431,65 +406,36 @@ function SubmissionPhase({
       return;
     }
 
-    setSubmitting(true);
+    const payload: SubmissionDraft[] = drafts
+      .filter((d) => d.track)
+      .map((d) => {
+        const t = d.track as SpotifyTrack;
+        return {
+          submissionId: d.submissionId,
+          track: {
+            spotifyTrackId: t.id,
+            title: t.name,
+            artist: t.artists.map((a) => a.name).join(", "),
+            artworkUrl: t.album.images[0]?.url ?? null,
+            isrc: t.external_ids?.isrc ?? null,
+            albumName: t.album.name || null,
+            durationMs: t.duration_ms || null,
+            popularity: t.popularity || null,
+          },
+          comment: d.comment,
+        };
+      });
+
     try {
-      const updates = drafts
-        .filter((draft) => draft.submissionId && draft.track)
-        .map((draft) => {
-          const track = draft.track as SpotifyTrack;
-          return supabase
-            .from("submissions")
-            .update({
-              spotify_track_id: track.id,
-              track_title: track.name,
-              track_artist: track.artists.map((a) => a.name).join(", "),
-              track_artwork_url: track.album.images[0]?.url ?? null,
-              track_isrc: track.external_ids?.isrc ?? "",
-              track_album_name: track.album.name,
-              track_duration_ms: track.duration_ms,
-              track_popularity: track.popularity,
-              comment: draft.comment.trim() || null,
-            })
-            .eq("id", draft.submissionId as string)
-            .eq("user_id", userId);
-        });
-
-      const inserts = drafts
-        .filter((draft) => !draft.submissionId && draft.track)
-        .map((draft) => {
-          const track = draft.track as SpotifyTrack;
-          return {
-            round_id: round.id,
-            user_id: userId,
-            spotify_track_id: track.id,
-            track_title: track.name,
-            track_artist: track.artists.map((a) => a.name).join(", "),
-            track_artwork_url: track.album.images[0]?.url ?? null,
-            track_isrc: track.external_ids?.isrc ?? "",
-            track_album_name: track.album.name,
-            track_duration_ms: track.duration_ms,
-            track_popularity: track.popularity,
-            comment: draft.comment.trim() || null,
-          };
-        });
-
-      const updateResults = await Promise.all(updates);
-      const updateError = updateResults.find(({ error }) => error)?.error;
-      if (updateError) throw new Error(updateError.message);
-
-      if (inserts.length > 0) {
-        const { error } = await supabase.from("submissions").insert(inserts);
-        if (error) throw new Error(error.message);
-      }
-
+      await submitMutation.mutateAsync({
+        roundId: round.id,
+        userId,
+        drafts: payload,
+      });
       onSubmitted();
     } catch (err) {
-      Alert.alert(
-        "Submission failed",
-        err instanceof Error ? err.message : "Unknown error",
-      );
-    } finally {
-      setSubmitting(false);
+      const message = err instanceof MixError ? err.message : "Unknown error";
+      Alert.alert("Submission failed", message);
     }
   };
 
