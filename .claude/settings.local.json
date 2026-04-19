@@ -49,7 +49,10 @@
       "Bash(gh api:*)",
       "Bash(gh label:*)",
       "Bash(python3 -c \"import json,sys; items=json.load\\(sys.stdin\\)['items']; [print\\(f\\\\\"#{i['content']['number']} {i['content']['title']}\\\\\"\\) for i in items]\")",
-      "Bash(python3 -c \"import json,sys; items=json.load\\(sys.stdin\\)['items']; [print\\(f\\\\\"#{i['content']['number']} {i['content']['title']}\\\\\"\\) for i in items if i.get\\('content'\\)]\")"
+      "Bash(python3 -c \"import json,sys; items=json.load\\(sys.stdin\\)['items']; [print\\(f\\\\\"#{i['content']['number']} {i['content']['title']}\\\\\"\\) for i in items if i.get\\('content'\\)]\")",
+      "Bash(node:*)",
+      "Bash(supabase projects:*)",
+      "Bash(supabase migration:*)"
     ]
   }
 }

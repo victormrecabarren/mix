@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import {
-  ScrollView, View, Text, StyleSheet, TouchableOpacity,
+  RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Share, Alert,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -64,6 +64,13 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  }, [fetchData]);
+
   const isCommissioner = league?.admin_user_id === supabaseUserId;
 
   const handleNewSeason = async () => {
@@ -94,7 +101,11 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.root} style={{ backgroundColor: '#000' }}>
+    <ScrollView
+      contentContainerStyle={styles.root}
+      style={{ backgroundColor: '#000' }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+    >
       {isCommissioner && <Text style={styles.commissionerBadge}>COMMISSIONER</Text>}
 
       {/* ── Seasons ── */}
@@ -131,11 +142,19 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
                   <Text style={styles.seasonName}>{season.name}</Text>
                   <Text style={styles.seasonMeta}>Season {season.season_number}</Text>
                 </View>
-                <View style={[styles.statusBadge, season.status === 'active' ? styles.statusActive : styles.statusDone]}>
-                  <Text style={styles.statusText}>{season.status.toUpperCase()}</Text>
+                <View style={[
+                  styles.statusBadge,
+                  season.status === 'active' ? styles.statusActive
+                  : season.status === 'completed' ? styles.statusCompleted
+                  : styles.statusDone,
+                ]}>
+                  <Text style={[
+                    styles.statusText,
+                    season.status === 'completed' && styles.statusTextCompleted,
+                  ]}>{season.status.toUpperCase()}</Text>
                 </View>
               </View>
-              {isCommissioner && (
+              {isCommissioner && season.status === 'active' && (
                 <TouchableOpacity
                   style={styles.shareBtn}
                   onPress={(e) => {
@@ -202,7 +221,9 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   statusActive: { backgroundColor: '#1DB95422' },
   statusDone: { backgroundColor: '#33333388' },
+  statusCompleted: { backgroundColor: '#FFD70022' },
   statusText: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#1DB954' },
+  statusTextCompleted: { color: '#FFD700' },
 
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#222', alignItems: 'center', justifyContent: 'center' },

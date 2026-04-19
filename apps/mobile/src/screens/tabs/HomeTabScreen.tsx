@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSession } from '@/context/SessionContext';
 import { supabase } from '@/lib/supabase';
@@ -11,7 +11,7 @@ type League = {
 };
 
 export function HomeTabScreen() {
-  const { session, supabaseUserId } = useSession();
+  const { session, supabaseUserId, signOut } = useSession();
   const router = useRouter();
 
   const [leagues, setLeagues] = useState<League[]>([]);
@@ -42,14 +42,28 @@ export function HomeTabScreen() {
 
   useFocusEffect(useCallback(() => { fetchLeagues(); }, [fetchLeagues]));
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchLeagues();
+    setRefreshing(false);
+  }, [fetchLeagues]);
+
   return (
-    <ScrollView contentContainerStyle={styles.root} style={{ backgroundColor: '#000' }}>
+    <ScrollView
+      contentContainerStyle={styles.root}
+      style={{ backgroundColor: '#000' }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+    >
       {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.heading}>Home</Text>
           {session && <Text style={styles.subheading}>Hey, {session.displayName}</Text>}
         </View>
+        <TouchableOpacity onPress={signOut} style={styles.signOutBtn}>
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Leagues section */}
@@ -107,6 +121,8 @@ const styles = StyleSheet.create({
     gap: 24,
   },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  signOutBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: '#333' },
+  signOutText: { fontSize: 12, color: '#555' },
   heading: { fontSize: 28, fontWeight: '800', color: '#fff' },
   subheading: { fontSize: 14, color: '#666', marginTop: 2 },
 

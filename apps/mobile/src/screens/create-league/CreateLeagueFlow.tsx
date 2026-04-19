@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import {
-  ScrollView, View, Text, StyleSheet, TextInput, TouchableOpacity,
+  View, Text, StyleSheet, TextInput, TouchableOpacity,
   ActivityIndicator, Alert,
 } from 'react-native';
+import { KeyboardScroll } from '@/components/KeyboardScroll';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 
@@ -61,7 +62,7 @@ export function CreateLeagueFlow() {
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardScroll contentContainerStyle={styles.scroll}>
         <Text style={styles.heading}>New League</Text>
         <Text style={styles.subheading}>Permanent settings — these apply across all seasons.</Text>
 
@@ -106,7 +107,7 @@ export function CreateLeagueFlow() {
             </Field>
           )}
         </View>
-      </ScrollView>
+      </KeyboardScroll>
 
       <View style={styles.footer}>
         <TouchableOpacity

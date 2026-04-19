@@ -33,6 +33,10 @@ apps/mobile/android/local.properties
 supabase/.branches
 supabase/.temp
 
+# Test scripts
+scripts/.env.test
+scripts/.test-state.json
+
 # Misc
 .DS_Store
 *.log
