@@ -25,6 +25,11 @@ if (
 import { useRouter, useFocusEffect } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
+import { useRoundSubmissions } from "@/queries/useRoundSubmissions";
+import { useMyVotes } from "@/queries/useMyVotes";
+import { useSubmitVotes } from "@/queries/useSubmitVotes";
+import { MixError } from "@/services/errors";
+import type { VoteInput, VoteCommentInput } from "@/services/votes";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -639,8 +644,9 @@ function VotingPhase({
 
   const [allocation, setAllocation] = useState<Record<string, number>>(() => myVotes);
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState(false);
+  const submitMutation = useSubmitVotes();
+  const submitting = submitMutation.isPending;
 
   const used = Object.values(allocation).reduce((a, b) => a + b, 0);
   const remaining = pointsTotal - used;
@@ -676,30 +682,15 @@ function VotingPhase({
       Alert.alert('Points not fully spent', `You have ${remaining} point${remaining !== 1 ? 's' : ''} left to allocate.`);
       return;
     }
-    const entries = Object.entries(allocation).filter(([, pts]) => pts > 0);
-    setSubmitting(true);
+    const votes: VoteInput[] = Object.entries(allocation)
+      .filter(([, pts]) => pts > 0)
+      .map(([submissionId, points]) => ({ submissionId, points }));
+    const comments: VoteCommentInput[] = submissions
+      .filter((s) => (commentInputs[s.id] ?? '').trim().length > 0)
+      .map((s) => ({ submissionId: s.id, body: commentInputs[s.id] }));
+
     try {
-      const votePayload = entries.map(([submission_id, points]) => ({ submission_id, points }));
-      const { error: voteError } = await supabase.rpc('submit_votes', {
-        p_round_id: round.id,
-        p_voter_user_id: userId,
-        p_votes: votePayload,
-      });
-      if (voteError) throw new Error(voteError.message);
-
-      const commentRows = submissions
-        .filter((s) => (commentInputs[s.id] ?? '').trim().length > 0)
-        .map((s) => ({
-          round_id: round.id,
-          submission_id: s.id,
-          author_user_id: userId,
-          body: commentInputs[s.id].trim(),
-        }));
-      if (commentRows.length > 0) {
-        const { error: commentError } = await supabase.from('comments').insert(commentRows);
-        if (commentError) throw new Error(commentError.message);
-      }
-
+      await submitMutation.mutateAsync({ roundId: round.id, userId, votes, comments });
       onScrollToTop?.();
       LayoutAnimation.configureNext({
         duration: 450,
@@ -710,9 +701,8 @@ function VotingPhase({
       setJustSubmitted(true);
       onVoted();
     } catch (err) {
-      Alert.alert('Submit failed', err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setSubmitting(false);
+      const message = err instanceof MixError ? err.message : 'Unknown error';
+      Alert.alert('Submit failed', message);
     }
   };
 
@@ -1251,9 +1241,12 @@ export function RoundScreen({
   const [isCommissioner, setIsCommissioner] = useState(false);
   const [myRole, setMyRole] = useState<'participant' | 'spectator'>('participant');
   const [totalRounds, setTotalRounds] = useState(0);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [myVotes, setMyVotes] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+
+  const { data: submissionsData, refetch: refetchSubmissions } = useRoundSubmissions(roundId);
+  const { data: myVotesData, refetch: refetchMyVotes } = useMyVotes(roundId, userId ?? undefined);
+  const submissions: Submission[] = submissionsData ?? [];
+  const myVotes = myVotesData ?? {};
 
   const fetchData = useCallback(async () => {
     const {
@@ -1304,48 +1297,29 @@ export function RoundScreen({
       setPrevRound(null);
     }
 
-    const [{ data: subData }, { data: voteData }, { count: roundCount }] = await Promise.all([
-      supabase
-        .from("submissions")
-        .select(
-          "id, user_id, track_title, track_artist, track_artwork_url, spotify_track_id, track_isrc, comment",
-        )
-        .eq("round_id", roundId),
-      supabase
-        .from("votes")
-        .select("submission_id, points")
-        .eq("round_id", roundId)
-        .eq("voter_user_id", user.id),
-      supabase
-        .from("rounds")
-        .select("id", { count: "exact", head: true })
-        .eq("season_id", r.season_id),
-    ]);
+    const { count: roundCount } = await supabase
+      .from("rounds")
+      .select("id", { count: "exact", head: true })
+      .eq("season_id", r.season_id);
 
     setTotalRounds(roundCount ?? 0);
-    setSubmissions(subData ?? []);
-
-    const voteMap: Record<string, number> = {};
-    (voteData ?? []).forEach(({ submission_id, points }) => {
-      voteMap[submission_id] = points;
-    });
-    setMyVotes(voteMap);
-
     setLoading(false);
   }, [roundId]);
 
   useFocusEffect(
     useCallback(() => {
       fetchData();
-    }, [fetchData]),
+      refetchSubmissions();
+      refetchMyVotes();
+    }, [fetchData, refetchSubmissions, refetchMyVotes]),
   );
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchData();
+    await Promise.all([fetchData(), refetchSubmissions(), refetchMyVotes()]);
     setRefreshing(false);
-  }, [fetchData]);
+  }, [fetchData, refetchSubmissions, refetchMyVotes]);
 
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollToTop = useCallback(() => {
