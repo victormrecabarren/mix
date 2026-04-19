@@ -1414,7 +1414,7 @@ export function RoundScreen({
       <ScrollView
         ref={scrollViewRef}
         contentContainerStyle={styles.root}
-        style={{ backgroundColor: "#000" }}
+        style={{ flex: 1, backgroundColor: "#000" }}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
       >
@@ -1425,8 +1425,8 @@ export function RoundScreen({
           style={styles.seasonCompleteBanner}
           onPress={() => router.push({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            pathname: '/(tabs)/(stack)/season/[id]' as any,
-            params: { id: round.season_id, leagueId: round.seasons?.league_id, initialTab: 'standings' },
+            pathname: '/(tabs)/(home)/season/[id]' as any,
+            params: { id: round.season_id, initialTab: 'standings' },
           })}
           activeOpacity={0.8}
         >

@@ -89,7 +89,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
       return;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    router.push({ pathname: '/(tabs)/(stack)/create-season' as any, params: { leagueId } });
+    router.push('/(tabs)/(home)/create-season' as any);
   };
 
   if (loading) {
@@ -103,10 +103,13 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
   return (
     <ScrollView
       contentContainerStyle={styles.root}
-      style={{ backgroundColor: '#000' }}
+      style={{ flex: 1, backgroundColor: '#000' }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
     >
-      {isCommissioner && <Text style={styles.commissionerBadge}>COMMISSIONER</Text>}
+      <View style={styles.leagueHeader}>
+        <Text style={styles.leagueName}>{league.name}</Text>
+        {isCommissioner && <Text style={styles.commissionerBadge}>COMMISSIONER</Text>}
+      </View>
 
       {/* ── Seasons ── */}
       <View style={styles.section}>
@@ -135,7 +138,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
               style={styles.seasonCard}
               activeOpacity={0.7}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              onPress={() => router.push({ pathname: '/(tabs)/(stack)/season/[id]' as any, params: { id: season.id, leagueId } })}
+              onPress={() => router.push({ pathname: '/(tabs)/(home)/season/[id]' as any, params: { id: season.id } })}
             >
               <View style={styles.seasonCardTop}>
                 <View>
@@ -198,8 +201,10 @@ const styles = StyleSheet.create({
   centered: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
   mutedText: { color: '#555', fontSize: 15 },
 
-  root: { backgroundColor: '#000', padding: 24, paddingBottom: 48, gap: 32 },
+  root: { backgroundColor: '#000', padding: 24, paddingTop: 56, paddingBottom: 48, gap: 32 },
 
+  leagueHeader: { gap: 4 },
+  leagueName: { fontSize: 28, fontWeight: '800', color: '#fff' },
   commissionerBadge: { fontSize: 10, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
 
   section: { gap: 12 },

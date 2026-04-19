@@ -394,7 +394,7 @@ function RoundFormModal({ mode, visible, onClose, onSaved }: {
 
 type Tab = 'rounds' | 'standings';
 
-export function SeasonScreen({ seasonId, leagueId, initialTab }: { seasonId: string; leagueId?: string; initialTab?: Tab }) {
+export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initialTab?: Tab }) {
   const router = useRouter();
 
   const [userId, setUserId] = useState<string | null>(null);
@@ -598,7 +598,7 @@ export function SeasonScreen({ seasonId, leagueId, initialTab }: { seasonId: str
         style={styles.roundCard}
         activeOpacity={0.7}
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        onPress={() => router.push({ pathname: '/(tabs)/(stack)/round/[id]' as any, params: { id: round.id, seasonId } })}
+        onPress={() => router.push({ pathname: '/(tabs)/(home)/round/[id]' as any, params: { id: round.id, seasonId } })}
       >
         <View style={styles.roundHeader}>
           <Text style={styles.roundNumber}>Round {round.round_number}</Text>
@@ -641,10 +641,10 @@ export function SeasonScreen({ seasonId, leagueId, initialTab }: { seasonId: str
   };
 
   return (
-    <>
+    <View style={styles.screenRoot}>
       <ScrollView
         contentContainerStyle={styles.root}
-        style={{ backgroundColor: '#000' }}
+        style={{ flex: 1, backgroundColor: '#000' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
       >
         {/* ── Season header ── */}
@@ -820,11 +820,12 @@ export function SeasonScreen({ seasonId, leagueId, initialTab }: { seasonId: str
           onSaved={fetchData}
         />
       )}
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screenRoot: { flex: 1, backgroundColor: '#000' },
   centered: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
   mutedText: { color: '#555', fontSize: 15 },
 

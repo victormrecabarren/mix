@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { SessionProvider, useSession } from "@/context/SessionContext";
+import { LeagueProvider } from "@/context/LeagueContext";
 import { SpotifyPlayerProvider, useSpotifyPlayer } from "@/playback/SpotifyWebPlayer";
 import { SoundCloudPlayerProvider } from "@/playback/SoundCloudWebPlayer";
 import { PlaybackProvider } from "@/playback/PlaybackContext";
@@ -42,6 +43,7 @@ export default function RootLayout() {
       <SpotifyPlayerProvider>
         <SoundCloudPlayerProvider>
         <PlaybackProvider>
+        <LeagueProvider>
         <AuthGate>
           <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
             <Stack.Screen name="(auth)/index" />
@@ -50,6 +52,7 @@ export default function RootLayout() {
             <Stack.Screen name="join/index" />
           </Stack>
         </AuthGate>
+        </LeagueProvider>
         </PlaybackProvider>
         </SoundCloudPlayerProvider>
       </SpotifyPlayerProvider>
