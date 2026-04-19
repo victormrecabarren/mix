@@ -6,6 +6,7 @@ import {
 import { KeyboardScroll } from '@/components/KeyboardScroll';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useLeague } from '@/context/LeagueContext';
 
 type PlaylistMode = 'fresh' | 'cloned' | 'linked';
 
@@ -27,6 +28,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 export function CreateLeagueFlow() {
   const router = useRouter();
+  const { setActiveLeagueId } = useLeague();
   const [form, setForm] = useState<LeagueForm>({ name: '', playlistMode: 'fresh', playlistRef: '' });
   const [submitting, setSubmitting] = useState(false);
 
@@ -51,8 +53,8 @@ export function CreateLeagueFlow() {
         }).eq('id', leagueId as string);
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      router.replace({ pathname: '/(tabs)/(stack)/league/[id]' as any, params: { id: leagueId as string } });
+      setActiveLeagueId(leagueId as string);
+      router.back();
     } catch (err) {
       Alert.alert('Failed', err instanceof Error ? err.message : 'Unknown error');
     } finally {

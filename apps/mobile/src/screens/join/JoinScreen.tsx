@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useLeague } from '@/context/LeagueContext';
 import { SwipeSheet } from '@/components/SwipeSheet';
 
 type JoinInfo = {
@@ -23,6 +24,7 @@ type JoinInviteLookup = {
 
 export function JoinScreen({ token }: { token: string }) {
   const router = useRouter();
+  const { setActiveLeagueId } = useLeague();
   const [info, setInfo] = useState<JoinInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
@@ -86,8 +88,8 @@ export function JoinScreen({ token }: { token: string }) {
 
       if (error) throw new Error(error.message);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      router.replace({ pathname: '/(tabs)/(stack)/league/[id]' as any, params: { id: info.leagueId } });
+      setActiveLeagueId(info.leagueId);
+      router.replace('/(tabs)');
     } catch (err) {
       Alert.alert('Failed to join', err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -127,7 +129,7 @@ export function JoinScreen({ token }: { token: string }) {
         <TouchableOpacity
           style={styles.btn}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onPress={() => router.replace({ pathname: '/(tabs)/(stack)/league/[id]' as any, params: { id: info.leagueId } })}
+          onPress={() => { setActiveLeagueId(info.leagueId); router.replace('/(tabs)'); }}
         >
           <Text style={styles.btnText}>Go to League</Text>
         </TouchableOpacity>

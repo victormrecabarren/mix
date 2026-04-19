@@ -7,6 +7,7 @@ import { KeyboardScroll } from '@/components/KeyboardScroll';
 import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { Stack, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useLeague } from '@/context/LeagueContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -312,8 +313,9 @@ const defaultSeason: SeasonForm = {
   votingDays: 3,
 };
 
-export function CreateSeasonFlow({ leagueId }: { leagueId: string }) {
+export function CreateSeasonFlow() {
   const router = useRouter();
+  const { activeLeagueId } = useLeague();
   const [step, setStep] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
 
@@ -351,6 +353,7 @@ export function CreateSeasonFlow({ leagueId }: { leagueId: string }) {
   );
 
   const handleSubmit = async () => {
+    if (!activeLeagueId) return;
     setSubmitting(true);
     try {
       // FE guard: check for in-progress season before hitting the DB trigger
@@ -358,7 +361,7 @@ export function CreateSeasonFlow({ leagueId }: { leagueId: string }) {
         .from('rounds')
         .select('id, seasons!inner(league_id)')
         .gt('voting_deadline_at', new Date().toISOString())
-        .eq('seasons.league_id', leagueId);
+        .eq('seasons.league_id', activeLeagueId);
 
       if (liveRounds && liveRounds.length > 0) {
         Alert.alert('Season in progress', 'A season is already running in this league. Wait for it to finish before creating a new one.');
@@ -369,12 +372,12 @@ export function CreateSeasonFlow({ leagueId }: { leagueId: string }) {
       const { count } = await supabase
         .from('seasons')
         .select('id', { count: 'exact', head: true })
-        .eq('league_id', leagueId);
+        .eq('league_id', activeLeagueId!);
 
       const { data: seasonData, error: seasonErr } = await supabase
         .from('seasons')
         .insert({
-          league_id: leagueId,
+          league_id: activeLeagueId!,
           name: season.name,
           season_number: (count ?? 0) + 1,
           participant_cap: season.hasParticipantCap ? parseInt(season.participantCap) || null : null,
@@ -398,8 +401,8 @@ export function CreateSeasonFlow({ leagueId }: { leagueId: string }) {
       );
       if (roundsErr) throw new Error(roundsErr.message);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      router.replace({ pathname: '/(tabs)/(stack)/season/[id]' as any, params: { id: seasonData!.id, leagueId } });
+      // Go back to Home — LeagueScreen refetches on focus and shows the new season.
+      router.back();
     } catch (err) {
       Alert.alert('Failed', err instanceof Error ? err.message : 'Unknown error');
     } finally {
