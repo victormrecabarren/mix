@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useLeague } from '@/context/LeagueContext';
 import { SwipeSheet } from '@/components/SwipeSheet';
+import { colors } from '@/theme/colors';
 
 type JoinInfo = {
   seasonId: string;
@@ -102,7 +103,7 @@ export function JoinScreen({ token }: { token: string }) {
   if (loading) {
     content = (
       <View style={styles.stateBlock}>
-        <ActivityIndicator color="#555" />
+        <ActivityIndicator color={colors.textMuted} />
       </View>
     );
   } else if (!info) {
@@ -151,7 +152,7 @@ export function JoinScreen({ token }: { token: string }) {
             disabled={joining}
           >
             {joining
-              ? <ActivityIndicator color="#000" />
+              ? <ActivityIndicator color={colors.bgPrimary} />
               : <Text style={[styles.btnText, styles.btnTextPrimary]}>Join as Participant</Text>
             }
           </TouchableOpacity>
@@ -179,7 +180,7 @@ export function JoinScreen({ token }: { token: string }) {
       dismissThreshold={80}
       dismissVelocityThreshold={0.5}
       closeDuration={300}
-      backgroundColor="#050505"
+      backgroundColor={colors.bgSheet}
       backdropColor="rgba(0,0,0,0.45)"
       sheetStyle={styles.sheet}
       renderHeaderRight={({ dismiss }) => (
@@ -206,11 +207,11 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: '#050505',
+    backgroundColor: colors.bgSheet,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderWidth: 1,
-    borderColor: '#222',
+    borderColor: colors.border,
     overflow: 'hidden',
   },
   content: {
@@ -228,34 +229,34 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 6,
   },
-  closeBtnText: { fontSize: 15, color: '#888', fontWeight: '600' },
-  errorTitle: { fontSize: 20, fontWeight: '800', color: '#fff', textAlign: 'center' },
-  errorBody: { fontSize: 14, color: '#555', textAlign: 'center' },
+  closeBtnText: { fontSize: 15, color: colors.textSecondary, fontWeight: '600' },
+  errorTitle: { fontSize: 20, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
+  errorBody: { fontSize: 14, color: colors.textMuted, textAlign: 'center' },
   card: {
     width: '100%',
-    backgroundColor: '#111',
+    backgroundColor: colors.surface1,
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderColor: '#222',
+    borderColor: colors.border,
   },
   label: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#1DB954',
+    color: colors.brand,
     letterSpacing: 2,
   },
   leagueName: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#fff',
+    color: colors.textPrimary,
     textAlign: 'center',
   },
   seasonName: {
     fontSize: 15,
-    color: '#666',
+    color: colors.textLabel,
     textAlign: 'center',
   },
 
@@ -266,16 +267,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
-  btnPrimary: { backgroundColor: '#1DB954' },
-  btnSecondary: { backgroundColor: '#111', borderWidth: 1, borderColor: '#333' },
+  btnPrimary: { backgroundColor: colors.brand },
+  btnSecondary: { backgroundColor: colors.surface1, borderWidth: 1, borderColor: colors.borderStrong },
   btnDisabled: { opacity: 0.4 },
   btnText: { fontSize: 16, fontWeight: '700' },
-  btnTextPrimary: { color: '#000' },
-  btnTextSecondary: { color: '#888' },
+  btnTextPrimary: { color: colors.bgPrimary },
+  btnTextSecondary: { color: colors.textSecondary },
 
   hint: {
     fontSize: 12,
-    color: '#444',
+    color: colors.textDim,
     textAlign: 'center',
     lineHeight: 18,
   },

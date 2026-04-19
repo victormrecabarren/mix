@@ -25,6 +25,7 @@ if (
 import { useRouter, useFocusEffect } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
+import { colors } from "@/theme/colors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -528,7 +529,7 @@ function SubmissionPhase({
                     <TextInput
                       style={styles.inlineSearchInput}
                       placeholder="Search, or paste link"
-                      placeholderTextColor="#555"
+                      placeholderTextColor={colors.textMuted}
                       value={draft.searchInput}
                       onChangeText={(value) => updateSearchInput(index, value)}
                       autoCapitalize="none"
@@ -547,7 +548,7 @@ function SubmissionPhase({
               </View>
               {draft.isSearching && (
                 <View style={styles.searchLoadingRow}>
-                  <ActivityIndicator color="#888" size="small" />
+                  <ActivityIndicator color={colors.textSecondary} size="small" />
                 </View>
               )}
               {draft.searchResults.map((track) => (
@@ -580,7 +581,7 @@ function SubmissionPhase({
             value={draft.comment}
             onChangeText={(comment) => updateComment(index, comment)}
             placeholder="Add optional comment for this track..."
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textMuted}
             multiline
             textAlignVertical="top"
           />
@@ -598,7 +599,7 @@ function SubmissionPhase({
         disabled={!canSubmit}
       >
         {submitting ? (
-          <ActivityIndicator color="#000" />
+          <ActivityIndicator color={colors.bgPrimary} />
         ) : (
           <Text style={styles.submitTrackBtnText}>
             {mySubmissions.length > 0 ? "Save Changes" : "Submit Selections"}
@@ -765,7 +766,7 @@ function VotingPhase({
         </View>
       ) : (
         <View style={styles.pointsBar}>
-          <Text style={[styles.pointsRemaining, remaining === 0 && { color: '#1DB954' }]}>
+          <Text style={[styles.pointsRemaining, remaining === 0 && { color: colors.brand }]}>
             {remaining}
           </Text>
           <Text style={styles.mutedHint}> / {pointsTotal} pts remaining · max {maxPerTrack} per track</Text>
@@ -827,7 +828,7 @@ function VotingPhase({
                 value={commentInputs[sub.id] ?? ''}
                 onChangeText={(v) => setCommentInputs((prev) => ({ ...prev, [sub.id]: v }))}
                 placeholder="Leave a comment… (optional)"
-                placeholderTextColor="#444"
+                placeholderTextColor={colors.textDim}
                 multiline
               />
             )}
@@ -842,7 +843,7 @@ function VotingPhase({
           disabled={submitting || remaining > 0}
         >
           {submitting
-            ? <ActivityIndicator color="#000" />
+            ? <ActivityIndicator color={colors.bgPrimary} />
             : <Text style={styles.submitVoteBtnText}>Submit Votes</Text>}
         </TouchableOpacity>
       )}
@@ -859,7 +860,7 @@ type VoterEntry = {
   comment: string | null;
 };
 
-const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
+const MEDAL_COLORS = [colors.gold, colors.silver, colors.bronze];
 const PLACE_LABELS = ['1ST', '2ND', '3RD'];
 
 function SubmitterBadge({ name, color, size = 22 }: { name: string; color?: string; size?: number }) {
@@ -1033,7 +1034,7 @@ function ResultsPhase({ submissions, roundId }: { submissions: Submission[]; rou
     [results],
   );
 
-  if (loading) return <ActivityIndicator color="#555" style={{ marginTop: 24 }} />;
+  if (loading) return <ActivityIndicator color={colors.textMuted} style={{ marginTop: 24 }} />;
 
   if (loadError) {
     return (
@@ -1104,7 +1105,7 @@ function ResultsPhase({ submissions, roundId }: { submissions: Submission[]; rou
       <Text style={styles.phaseLabel}>ALL ENTRIES</Text>
       {eligible.map((row, i) => {
         const voters = votersBySubmission[row.submission_id] ?? [];
-        const color = MEDAL_COLORS[i] ?? '#444';
+        const color = MEDAL_COLORS[i] ?? colors.textDim;
         const subComment = submissionCommentById[row.submission_id];
         return (
           <View
@@ -1355,7 +1356,7 @@ export function RoundScreen({
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#555" />
+        <ActivityIndicator color={colors.textMuted} />
       </View>
     );
   }
@@ -1372,10 +1373,10 @@ export function RoundScreen({
   const mySubmissions = submissions.filter((s) => s.user_id === userId);
 
   const phaseColor: Record<Phase, string> = {
-    submissions: "#1DB954",
-    voting: "#f0a500",
-    results: "#555",
-    upcoming: "#333",
+    submissions: colors.brand,
+    voting: colors.amber,
+    results: colors.textMuted,
+    upcoming: colors.textFaint,
   };
   const phaseLabel: Record<Phase, string> = {
     submissions: "SUBMISSIONS OPEN",
@@ -1407,16 +1408,16 @@ export function RoundScreen({
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#000" }}
+      style={{ flex: 1, backgroundColor: colors.bgPrimary }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={88}
     >
       <ScrollView
         ref={scrollViewRef}
         contentContainerStyle={styles.root}
-        style={{ flex: 1, backgroundColor: "#000" }}
+        style={{ flex: 1, backgroundColor: colors.bgPrimary }}
         keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />}
       >
       {phase === 'results' &&
         round.seasons?.status === 'completed' &&
@@ -1525,86 +1526,86 @@ export function RoundScreen({
 const styles = StyleSheet.create({
   centered: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: colors.bgPrimary,
     alignItems: "center",
     justifyContent: "center",
   },
   root: {
-    backgroundColor: "#000",
+    backgroundColor: colors.bgPrimary,
     padding: 24,
     paddingBottom: 64,
     gap: 20,
   },
 
   roundMeta: { gap: 4 },
-  roundTitle: { fontSize: 28, fontWeight: "800", color: "#fff" },
+  roundTitle: { fontSize: 28, fontWeight: "800", color: colors.textPrimary },
   phaseBadge: { fontSize: 11, fontWeight: "800", letterSpacing: 1 },
 
   promptCard: {
-    backgroundColor: "#111",
+    backgroundColor: colors.surface1,
     borderRadius: 12,
     padding: 16,
     gap: 6,
     borderWidth: 1,
-    borderColor: "#222",
+    borderColor: colors.border,
   },
   promptLabel: {
     fontSize: 10,
     fontWeight: "800",
-    color: "#555",
+    color: colors.textMuted,
     letterSpacing: 1,
   },
   promptText: {
     fontSize: 17,
-    color: "#fff",
+    color: colors.textPrimary,
     fontWeight: "600",
     lineHeight: 24,
   },
 
   deadlines: { gap: 4 },
-  deadlineItem: { fontSize: 12, color: "#555" },
-  deadlineValue: { color: "#888" },
+  deadlineItem: { fontSize: 12, color: colors.textMuted },
+  deadlineValue: { color: colors.textSecondary },
 
   upcomingCard: {
-    backgroundColor: "#111",
+    backgroundColor: colors.surface1,
     borderRadius: 10,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#222",
+    borderColor: colors.border,
   },
-  upcomingText: { fontSize: 13, color: "#555", lineHeight: 18 },
+  upcomingText: { fontSize: 13, color: colors.textMuted, lineHeight: 18 },
 
   // Phase card
   phaseCard: {
-    backgroundColor: "#0d0d0d",
+    backgroundColor: colors.bgCardDark,
     borderRadius: 14,
     padding: 16,
     gap: 14,
     borderWidth: 1,
-    borderColor: "#1a1a1a",
+    borderColor: colors.borderSubtle,
   },
   phaseLabel: {
     fontSize: 10,
     fontWeight: "800",
-    color: "#555",
+    color: colors.textMuted,
     letterSpacing: 1,
   },
-  mutedHint: { fontSize: 12, color: "#444" },
+  mutedHint: { fontSize: 12, color: colors.textDim },
 
   // Points
   pointsBar: { flexDirection: "row", alignItems: "baseline" },
-  pointsRemaining: { fontSize: 22, fontWeight: "800", color: "#fff" },
+  pointsRemaining: { fontSize: 22, fontWeight: "800", color: colors.textPrimary },
 
   // Search / link
   searchInput: {
     flex: 1,
-    backgroundColor: "#111",
+    backgroundColor: colors.surface1,
     borderRadius: 10,
     padding: 12,
     fontSize: 14,
-    color: "#fff",
+    color: colors.textPrimary,
     borderWidth: 1,
-    borderColor: "#2a2a2a",
+    borderColor: colors.borderInput,
   },
   searchLoadingRow: {
     paddingVertical: 4,
@@ -1614,11 +1615,11 @@ const styles = StyleSheet.create({
   resultRow: { paddingTop: 8, paddingBottom: 4 },
 
   mySubmissionRow: {
-    backgroundColor: "#111",
+    backgroundColor: colors.surface1,
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
-    borderColor: "#2a2a2a",
+    borderColor: colors.borderInput,
   },
   changeRow: {
     minHeight: 18,
@@ -1632,7 +1633,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "transparent",
   },
-  clearSlotText: { fontSize: 12, color: "#888", fontWeight: "600" },
+  clearSlotText: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
   hiddenChangeText: { color: "transparent" },
   editTrackRow: {
     flexDirection: "row",
@@ -1648,108 +1649,108 @@ const styles = StyleSheet.create({
   },
   editArtworkPlaceholderText: {
     fontSize: 22,
-    color: "#666",
+    color: colors.textLabel,
     fontWeight: "700",
   },
   editTrackMeta: { flex: 1 },
   inlineInputRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#0a0a0a",
+    backgroundColor: colors.bgDeep,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#222",
+    borderColor: colors.border,
     paddingLeft: 12,
     paddingRight: 8,
   },
   inlineSearchInput: {
     flex: 1,
     minHeight: 48,
-    color: "#fff",
+    color: colors.textPrimary,
     fontSize: 14,
     paddingVertical: 10,
   },
   cancelEditBtn: { paddingHorizontal: 8, paddingVertical: 8 },
-  cancelEditText: { color: "#888", fontSize: 13, fontWeight: "700" },
+  cancelEditText: { color: colors.textSecondary, fontSize: 13, fontWeight: "700" },
   commentInput: {
     marginTop: 10,
     minHeight: 68,
-    backgroundColor: "#0a0a0a",
+    backgroundColor: colors.bgDeep,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#222",
+    borderColor: colors.border,
     padding: 10,
-    color: "#fff",
+    color: colors.textPrimary,
     fontSize: 13,
   },
   submitTrackBtn: {
-    backgroundColor: "#1DB954",
+    backgroundColor: colors.brand,
     borderRadius: 10,
     padding: 12,
     alignItems: "center",
   },
-  submitTrackBtnText: { color: "#000", fontWeight: "700", fontSize: 14 },
+  submitTrackBtnText: { color: colors.bgPrimary, fontWeight: "700", fontSize: 14 },
   secondaryActionBtn: {
     borderRadius: 10,
     padding: 12,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#2a2a2a",
+    borderColor: colors.borderInput,
     backgroundColor: "transparent",
   },
   secondaryActionBtnText: {
-    color: "#ddd",
+    color: colors.textBright,
     fontWeight: "700",
     fontSize: 14,
   },
 
   // Track row
   trackRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  artwork: { backgroundColor: "#222" },
-  artworkPlaceholder: { backgroundColor: "#222" },
+  artwork: { backgroundColor: colors.surface3 },
+  artworkPlaceholder: { backgroundColor: colors.surface3 },
   trackMeta: { flex: 1, gap: 2 },
-  trackTitle: { fontSize: 15, fontWeight: "600", color: "#fff" },
-  trackArtist: { fontSize: 12, color: "#888" },
+  trackTitle: { fontSize: 15, fontWeight: "600", color: colors.textPrimary },
+  trackArtist: { fontSize: 12, color: colors.textSecondary },
 
   // Voting — unified submission card
   submissionVoteCard: {
-    backgroundColor: '#111',
+    backgroundColor: colors.surface1,
     borderRadius: 12,
     padding: 14,
     gap: 10,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
+    borderColor: colors.borderSubtle,
   },
   submissionVoteCardVoted: {
-    borderColor: '#1DB95466',
-    backgroundColor: '#0f1a12',
+    borderColor: colors.brandMid,
+    backgroundColor: colors.bgBrandTint,
   },
   submissionVoteCardUnvoted: {
     borderColor: 'transparent',
-    backgroundColor: '#0a0a0a',
+    backgroundColor: colors.bgDeep,
     opacity: 0.55,
   },
-  ownTrackLabel: { fontSize: 10, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
+  ownTrackLabel: { fontSize: 10, fontWeight: '800', color: colors.brand, letterSpacing: 1 },
   voteStepper: { flexDirection: "row", alignItems: "center", gap: 6 },
   voteBtn: {
     width: 32,
     height: 32,
-    backgroundColor: "#222",
+    backgroundColor: colors.surface3,
     borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
   },
   voteBtnDisabled: { opacity: 0.25 },
-  voteBtnText: { color: "#fff", fontSize: 18, fontWeight: "300" },
+  voteBtnText: { color: colors.textPrimary, fontSize: 18, fontWeight: "300" },
   votePoints: {
     width: 28,
     textAlign: "center",
     fontSize: 16,
     fontWeight: "700",
-    color: "#fff",
+    color: colors.textPrimary,
   },
   votedBanner: {
-    backgroundColor: "#0a1f10",
+    backgroundColor: colors.bgBrandTintDeep,
     borderRadius: 8,
     padding: 12,
     alignItems: "center",
@@ -1757,67 +1758,67 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#1DB95433",
   },
-  votedBannerText: { color: "#1DB954", fontSize: 13, fontWeight: "700" },
+  votedBannerText: { color: colors.brand, fontSize: 13, fontWeight: "700" },
   votedBannerSub: { color: "#1DB95499", fontSize: 11 },
   spectatorCard: {
-    backgroundColor: '#0d0d1a',
+    backgroundColor: colors.bgPurpleTint,
     borderRadius: 8,
     padding: 14,
     gap: 6,
     borderWidth: 1,
-    borderColor: '#9b59b633',
+    borderColor: colors.purpleFaint,
   },
-  spectatorCardTitle: { color: '#9b59b6', fontSize: 13, fontWeight: '700' },
-  spectatorCardBody: { color: '#9b59b699', fontSize: 12, lineHeight: 17 },
+  spectatorCardTitle: { color: colors.purple, fontSize: 13, fontWeight: '700' },
+  spectatorCardBody: { color: colors.purpleMuted, fontSize: 12, lineHeight: 17 },
   spectatorPlaylistCard: {
     borderRadius: 16,
     padding: 28,
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#0d0d1a',
+    backgroundColor: colors.bgPurpleTint,
     borderWidth: 1,
-    borderColor: '#9b59b633',
+    borderColor: colors.purpleFaint,
   },
   spectatorPlaylistEmoji: { fontSize: 48 },
-  spectatorPlaylistTitle: { fontSize: 18, fontWeight: '800', color: '#fff', textAlign: 'center' },
-  spectatorPlaylistBody: { fontSize: 13, color: '#888', lineHeight: 20, textAlign: 'center' },
+  spectatorPlaylistTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
+  spectatorPlaylistBody: { fontSize: 13, color: colors.textSecondary, lineHeight: 20, textAlign: 'center' },
   seasonCompleteBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#1a1400',
+    backgroundColor: colors.bgGoldTint,
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#FFD70044',
+    borderColor: colors.goldMid,
   },
   seasonCompleteEmoji: { fontSize: 36 },
   seasonCompleteText: { flex: 1, gap: 3 },
-  seasonCompleteTitle: { fontSize: 16, fontWeight: '800', color: '#FFD700' },
-  seasonCompleteSub: { fontSize: 12, color: '#FFD70099' },
+  seasonCompleteTitle: { fontSize: 16, fontWeight: '800', color: colors.gold },
+  seasonCompleteSub: { fontSize: 12, color: colors.goldMuted },
   ineligibleBanner: {
-    backgroundColor: '#1a0a00',
+    backgroundColor: colors.bgAmberTint,
     borderRadius: 8,
     padding: 12,
     gap: 4,
     borderWidth: 1,
-    borderColor: '#f0a50033',
+    borderColor: colors.amberFaint,
   },
-  ineligibleTitle: { color: '#f0a500', fontSize: 13, fontWeight: '700' },
-  ineligibleSub: { color: '#f0a50099', fontSize: 11 },
-  lockedPts: { fontSize: 12, fontWeight: "700", color: "#1DB954" },
-  lockedPtsNone: { fontSize: 12, color: "#333" },
+  ineligibleTitle: { color: colors.amber, fontSize: 13, fontWeight: '700' },
+  ineligibleSub: { color: colors.amberMuted, fontSize: 11 },
+  lockedPts: { fontSize: 12, fontWeight: "700", color: colors.brand },
+  lockedPtsNone: { fontSize: 12, color: colors.textFaint },
   submitVoteBtn: {
-    backgroundColor: "#1DB954",
+    backgroundColor: colors.brand,
     borderRadius: 12,
     padding: 14,
     alignItems: "center",
   },
-  submitVoteBtnText: { color: "#000", fontSize: 15, fontWeight: "800" },
+  submitVoteBtnText: { color: colors.bgPrimary, fontSize: 15, fontWeight: "800" },
 
   // Results hero
   resultsHero: {
-    backgroundColor: '#0d0d0d',
+    backgroundColor: colors.bgCardDark,
     borderRadius: 14,
     padding: 20,
     borderWidth: 1,
@@ -1829,17 +1830,17 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 2,
-    color: '#FFD700',
+    color: colors.gold,
   },
   resultsHeroTitle: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#fff',
+    color: colors.textPrimary,
     textAlign: 'center',
   },
   resultsHeroSub: {
     fontSize: 12,
-    color: '#888',
+    color: colors.textSecondary,
     textAlign: 'center',
   },
 
@@ -1857,15 +1858,15 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 10,
     paddingHorizontal: 6,
-    backgroundColor: '#0d0d0d',
+    backgroundColor: colors.bgCardDark,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
+    borderColor: colors.borderSubtle,
   },
   podiumColWinner: {
     paddingVertical: 14,
-    backgroundColor: '#14100a',
-    borderColor: '#FFD70044',
+    backgroundColor: colors.bgGoldTintAlt,
+    borderColor: colors.goldMid,
   },
   podiumAvatar: {
     borderWidth: 2,
@@ -1883,7 +1884,7 @@ const styles = StyleSheet.create({
   podiumColName: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#ddd',
+    color: colors.textBright,
     maxWidth: '100%',
     textAlign: 'center',
   },
@@ -1892,7 +1893,7 @@ const styles = StyleSheet.create({
   podiumScoreLabel: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#555',
+    color: colors.textMuted,
     letterSpacing: 0.5,
   },
 
@@ -1904,20 +1905,20 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   submitterAvatar: {
-    backgroundColor: '#2a2a2a',
+    backgroundColor: colors.surface4,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: colors.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
   },
   submitterAvatarText: {
-    color: '#fff',
+    color: colors.textPrimary,
     fontWeight: '800',
   },
   submitterName: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#ccc',
+    color: colors.textLight,
     maxWidth: 160,
   },
 
@@ -1926,11 +1927,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    backgroundColor: "#0d0d0d",
+    backgroundColor: colors.bgCardDark,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#1a1a1a",
+    borderColor: colors.borderSubtle,
   },
   rankCol: {
     width: 32,
@@ -1952,7 +1953,7 @@ const styles = StyleSheet.create({
   resultScoreLabel: {
     fontSize: 10,
     fontWeight: "700",
-    color: "#555",
+    color: colors.textMuted,
     letterSpacing: 0.5,
   },
 
@@ -1962,32 +1963,32 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#1e1e1e',
+    borderColor: colors.borderFaint,
     marginTop: 4,
   },
   voterRow: {
-    backgroundColor: '#111',
+    backgroundColor: colors.surface1,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 4,
   },
   voterRowBorder: {
     borderTopWidth: 1,
-    borderTopColor: '#1e1e1e',
+    borderTopColor: colors.borderFaint,
   },
   voterHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  voterName: { fontSize: 12, fontWeight: '700', color: '#bbb' },
-  voterPoints: { fontSize: 13, fontWeight: '800', color: '#1DB954' },
-  voterPointsZero: { color: '#444' },
+  voterName: { fontSize: 12, fontWeight: '700', color: colors.textMid },
+  voterPoints: { fontSize: 13, fontWeight: '800', color: colors.brand },
+  voterPointsZero: { color: colors.textDim },
   voterPointsVoid: {
-    color: '#555',
+    color: colors.textMuted,
     textDecorationLine: 'line-through',
   },
-  voterComment: { fontSize: 12, color: '#888', fontStyle: 'italic', lineHeight: 17 },
+  voterComment: { fontSize: 12, color: colors.textSecondary, fontStyle: 'italic', lineHeight: 17 },
 
   // Forfeit styling (submitter didn't vote)
   forfeitDividerRow: {
@@ -1996,16 +1997,16 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 8,
   },
-  forfeitDividerLine: { flex: 1, height: 1, backgroundColor: '#1a1a1a' },
+  forfeitDividerLine: { flex: 1, height: 1, backgroundColor: colors.borderSubtle },
   forfeitDividerLabel: {
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.5,
-    color: '#555',
+    color: colors.textMuted,
   },
   forfeitHelp: {
     fontSize: 11,
-    color: '#666',
+    color: colors.textLabel,
     lineHeight: 16,
     marginTop: -4,
     fontStyle: 'italic',
@@ -2020,8 +2021,8 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1,
-    color: '#888',
-    backgroundColor: '#1a1a1a',
+    color: colors.textSecondary,
+    backgroundColor: colors.surface2,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -2029,16 +2030,16 @@ const styles = StyleSheet.create({
   },
   resultItemForfeit: {
     opacity: 0.6,
-    borderColor: '#1a1a1a',
-    backgroundColor: '#0a0a0a',
+    borderColor: colors.borderSubtle,
+    backgroundColor: colors.bgDeep,
   },
   rankForfeit: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#444',
+    color: colors.textDim,
   },
   resultScoreVoid: {
-    color: '#555',
+    color: colors.textMuted,
     textDecorationLine: 'line-through',
   },
 
@@ -2046,18 +2047,18 @@ const styles = StyleSheet.create({
   commentInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   commentInputField: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.surface2,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 13,
-    color: '#fff',
+    color: colors.textPrimary,
   },
   commentSendBtn: { paddingHorizontal: 8, paddingVertical: 6 },
-  commentSendText: { fontSize: 13, fontWeight: '700', color: '#1DB954' },
+  commentSendText: { fontSize: 13, fontWeight: '700', color: colors.brand },
   submissionComment: {
     marginTop: 8,
-    color: "#999",
+    color: colors.textSecondary,
     fontSize: 12,
     fontStyle: "italic",
     lineHeight: 17,

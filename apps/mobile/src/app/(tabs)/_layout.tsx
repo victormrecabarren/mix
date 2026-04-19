@@ -1,27 +1,24 @@
-import { BottomTabBar } from '@react-navigation/bottom-tabs';
 import { Tabs } from 'expo-router';
 import { View } from 'react-native';
-import { NowPlayingBar } from '@/components/NowPlayingBar';
+import { NocturneTabBar } from '@/components/nocturne/NocturneTabBar';
 
 export default function TabsLayout() {
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: { backgroundColor: '#111', borderTopColor: '#222' },
-        tabBarActiveTintColor: '#fff',
-        tabBarInactiveTintColor: '#555',
-      }}
-      tabBar={(props) => (
-        <View>
-          <NowPlayingBar />
-          <BottomTabBar {...props} />
-        </View>
-      )}
-    >
-      <Tabs.Screen name="(home)"  options={{ title: 'Home' }} />
-      <Tabs.Screen name="mix"     options={{ title: 'Mix' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
-    </Tabs>
+    // Black wrapper so any exposed area during stack push/pop animations
+    // shows black instead of white.
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: { position: 'absolute', backgroundColor: 'transparent', borderTopWidth: 0, elevation: 0 },
+          sceneStyle: { backgroundColor: '#000' },
+        }}
+        tabBar={(props) => <NocturneTabBar {...props} />}
+      >
+        <Tabs.Screen name="(home)"  options={{ title: 'Home' }} />
+        <Tabs.Screen name="mix"     options={{ title: 'Mix' }} />
+        <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      </Tabs>
+    </View>
   );
 }

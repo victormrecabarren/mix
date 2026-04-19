@@ -3,10 +3,28 @@ import {
   RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
   Modal, TextInput, Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardScroll } from '@/components/KeyboardScroll'; // used inside modals only
 import RNDateTimePicker from '@react-native-community/datetimepicker';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { Stack, useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { colors, nocturne } from '@/theme/colors';
+import { fonts } from '@/theme/fonts';
+import { GlassCard } from '@/components/nocturne/GlassCard';
+import { Eyebrow } from '@/components/nocturne/Eyebrow';
+import { Chip } from '@/components/nocturne/Chip';
+
+function formatTimeLeftShort(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'closing';
+  const totalMinutes = Math.floor(ms / 60000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
 
 type Season = {
   id: string;
@@ -61,14 +79,14 @@ function getRoundEffectiveStatus(rounds: Round[], index: number): { label: strin
   const isCompleted = (r: Round) => now >= new Date(r.voting_deadline_at).getTime();
 
   const prevCompleted = index === 0 || isCompleted(rounds[index - 1]);
-  if (!prevCompleted) return { label: 'UPCOMING', color: '#444', isActive: false, stage: 'upcoming' };
+  if (!prevCompleted) return { label: 'UPCOMING', color: colors.textDim, isActive: false, stage: 'upcoming' };
 
   const round = rounds[index];
   const subDeadline = new Date(round.submission_deadline_at).getTime();
   const voteDeadline = new Date(round.voting_deadline_at).getTime();
-  if (now < subDeadline) return { label: 'SUBMISSIONS OPEN', color: '#1DB954', isActive: true, stage: 'submissions' };
-  if (now < voteDeadline) return { label: 'VOTING OPEN', color: '#f0a500', isActive: true, stage: 'voting' };
-  return { label: 'COMPLETED', color: '#555', isActive: false, stage: 'completed' };
+  if (now < subDeadline) return { label: 'SUBMISSIONS OPEN', color: colors.brand, isActive: true, stage: 'submissions' };
+  if (now < voteDeadline) return { label: 'VOTING OPEN', color: colors.amber, isActive: true, stage: 'voting' };
+  return { label: 'COMPLETED', color: colors.textMuted, isActive: false, stage: 'completed' };
 }
 
 function formatDate(iso: string) {
@@ -164,7 +182,7 @@ function DateTimeField({ value, onChange }: { value: Date; onChange: (d: Date) =
               onValueChange={(_, d) => d && setTemp(d)}
               onDismiss={() => setOpen(false)}
               themeVariant="dark"
-              textColor="#fff"
+              textColor={colors.textPrimary}
               style={{ width: '100%' }}
             />
           </View>
@@ -232,7 +250,7 @@ function SeasonEditModal({ season, visible, onClose, onSaved }: {
               style={styles.modalInput}
               value={form.name}
               onChangeText={(name) => setForm((f) => ({ ...f, name }))}
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textMuted}
               autoFocus
             />
 
@@ -364,7 +382,7 @@ function RoundFormModal({ mode, visible, onClose, onSaved }: {
               onChangeText={(prompt) => setForm((f) => ({ ...f, prompt }))}
               multiline
               placeholder="e.g. Songs that feel like summer"
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textMuted}
               autoFocus
             />
 
@@ -375,7 +393,7 @@ function RoundFormModal({ mode, visible, onClose, onSaved }: {
               onChangeText={(description) => setForm((f) => ({ ...f, description }))}
               multiline
               placeholder="Extra context or rules for the round"
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textMuted}
             />
 
             <Text style={[styles.fieldLabel, { marginTop: 20 }]}>SUBMISSION DEADLINE</Text>
@@ -396,6 +414,7 @@ type Tab = 'rounds' | 'standings';
 
 export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initialTab?: Tab }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [userId, setUserId] = useState<string | null>(null);
   const [season, setSeason] = useState<Season | null>(null);
@@ -560,7 +579,7 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#555" />
+        <ActivityIndicator color={colors.textMuted} />
       </View>
     );
   }
@@ -575,11 +594,69 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
 
   const league = season.leagues;
 
+  // Nocturne-style active round card — glass, chip, round number, prompt, time left
+  const renderActiveRoundCard = (round: Round) => {
+    const st = statusByRoundId[round.id];
+    const stage = st?.stage ?? 'upcoming';
+    const isVoting = stage === 'voting';
+    const isSubmissions = stage === 'submissions';
+    const chipColor = isVoting ? nocturne.active : nocturne.mint;
+    const chipLabel = isVoting ? 'Voting open' : isSubmissions ? 'Submissions open' : 'Upcoming';
+    const deadline = isVoting ? round.voting_deadline_at : round.submission_deadline_at;
+    const timeLeft = stage === 'upcoming'
+      ? 'opens soon'
+      : `${formatTimeLeftShort(deadline)} left`;
+    const borderColor = isVoting ? nocturne.active + '55' : nocturne.cardBorder;
+
+    return (
+      <TouchableOpacity
+        key={round.id}
+        activeOpacity={0.85}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onPress={() => router.push({ pathname: '/(tabs)/(home)/round/[id]' as any, params: { id: round.id, seasonId } })}
+      >
+        <GlassCard style={{ borderColor }}>
+          <View style={nocStyles.activeRoundRow}>
+            <Chip label={chipLabel} color={chipColor} />
+            <Text style={nocStyles.roundNumberBadge}>R{String(round.round_number).padStart(2, '0')}</Text>
+          </View>
+          <Text style={nocStyles.roundPrompt}>{round.prompt}</Text>
+          <Text style={nocStyles.roundTimeLeft}>{timeLeft}</Text>
+          {isCommissioner && stage !== 'completed' && (
+            <TouchableOpacity
+              onPress={(e) => { e.stopPropagation(); setEditingRound(round); }}
+              style={nocStyles.roundEditBtn}
+            >
+              <Text style={nocStyles.roundEditBtnText}>Edit</Text>
+            </TouchableOpacity>
+          )}
+        </GlassCard>
+      </TouchableOpacity>
+    );
+  };
+
+  // Completed round — list row with R-number, prompt, chevron
+  const renderCompletedRoundRow = (round: Round) => (
+    <TouchableOpacity
+      key={round.id}
+      activeOpacity={0.6}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      onPress={() => router.push({ pathname: '/(tabs)/(home)/round/[id]' as any, params: { id: round.id, seasonId } })}
+      style={nocStyles.completedRow}
+    >
+      <Text style={nocStyles.completedNumber}>R{String(round.round_number).padStart(2, '0')}</Text>
+      <View style={nocStyles.completedBody}>
+        <Text style={nocStyles.completedPrompt} numberOfLines={2}>{round.prompt}</Text>
+      </View>
+      <Text style={nocStyles.completedChev}>›</Text>
+    </TouchableOpacity>
+  );
+
   const renderRoundCard = (round: Round) => {
     const st = statusByRoundId[round.id];
     const { label, color, isActive, stage } = st ?? {
       label: '—',
-      color: '#555',
+      color: colors.textMuted,
       isActive: false,
       stage: 'completed' as RoundStage,
     };
@@ -619,9 +696,9 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
 
         {isActive && (
           <View style={styles.submissionStatus}>
-            <AvatarStack members={doneMembers} label={doneLabel} color={stage === 'voting' ? '#f0a500' : '#1DB954'} />
+            <AvatarStack members={doneMembers} label={doneLabel} color={stage === 'voting' ? colors.amber : colors.brand} />
             {waitingMembers.length > 0 && (
-              <AvatarStack members={waitingMembers} label="Waiting" color="#555" />
+              <AvatarStack members={waitingMembers} label="Waiting" color={colors.textMuted} />
             )}
           </View>
         )}
@@ -640,42 +717,71 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
     );
   };
 
+  // Ascending sort for progress math (R01..R06)
+  const roundsAsc = [...rounds].sort((a, b) => a.round_number - b.round_number);
+  const completedCountAsc = roundsAsc.filter((r) => {
+    const st = statusByRoundId[r.id];
+    return st?.stage === 'completed';
+  }).length;
+  const totalRounds = roundsAsc.length;
+
+  const statusChipColor =
+    season.status === 'active' ? nocturne.gold : season.status === 'completed' ? nocturne.blueLight : nocturne.inkMuted;
+  const statusChipLabel =
+    season.status === 'active' ? 'IN PROGRESS' : season.status === 'completed' ? 'COMPLETED' : season.status.toUpperCase();
+
   return (
-    <View style={styles.screenRoot}>
+    <View style={nocStyles.screenRoot}>
+      {/* Stack header — centered league name in uppercase tracking */}
+      <Stack.Screen
+        options={{
+          title: league?.name?.toUpperCase() ?? 'SEASON',
+          headerTitleStyle: {
+            fontFamily: fonts.sansSemiBold,
+            fontSize: 12,
+            color: nocturne.inkMuted,
+          },
+          headerTitleAlign: 'center',
+        }}
+      />
       <ScrollView
-        contentContainerStyle={styles.root}
-        style={{ flex: 1, backgroundColor: '#000' }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+        contentContainerStyle={[nocStyles.root, { paddingTop: insets.top + 56 }]}
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={nocturne.blue} />}
       >
         {/* ── Season header ── */}
-        <View style={styles.titleRow}>
-          <Text style={styles.pageTitle}>{season.name}</Text>
-          <View style={[styles.statusBadge, season.status === 'active' ? styles.statusActive : styles.statusDone]}>
-            <Text style={styles.statusText}>{season.status.toUpperCase()}</Text>
-          </View>
-        </View>
-        <Text style={styles.seasonMeta}>Season {season.season_number}</Text>
+        <Eyebrow>
+          {`Season · ${completedCountAsc}/${totalRounds || '-'} rounds`}
+        </Eyebrow>
+        <Text style={nocStyles.pageTitle}>
+          {season.name}
+          <Text style={{ color: nocturne.blueLight }}>.</Text>
+        </Text>
+        <Text style={[nocStyles.statusLabel, { color: statusChipColor }]}>
+          {statusChipLabel}
+        </Text>
         {isCommissioner && season.status !== 'completed' && (
           <TouchableOpacity onPress={() => setEditingSeasonOpen(true)}>
-            <Text style={styles.editBtn}>Edit Season</Text>
+            <Text style={nocStyles.editBtn}>Edit Season</Text>
           </TouchableOpacity>
         )}
 
-        {/* ── Tab switcher ── */}
-        <View style={styles.tabBar}>
+        {/* ── Tab switcher — kept but styled compact ── */}
+        <View style={nocStyles.tabBar}>
           <TouchableOpacity
-            style={[styles.tabBtn, tab === 'rounds' && styles.tabBtnActive]}
+            style={[nocStyles.tabBtn, tab === 'rounds' && nocStyles.tabBtnActive]}
             onPress={() => setTab('rounds')}
           >
-            <Text style={[styles.tabBtnText, tab === 'rounds' && styles.tabBtnTextActive]}>
+            <Text style={[nocStyles.tabBtnText, tab === 'rounds' && nocStyles.tabBtnTextActive]}>
               Rounds
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tabBtn, tab === 'standings' && styles.tabBtnActive]}
+            style={[nocStyles.tabBtn, tab === 'standings' && nocStyles.tabBtnActive]}
             onPress={() => setTab('standings')}
           >
-            <Text style={[styles.tabBtnText, tab === 'standings' && styles.tabBtnTextActive]}>
+            <Text style={[nocStyles.tabBtnText, tab === 'standings' && nocStyles.tabBtnTextActive]}>
               Standings
             </Text>
           </TouchableOpacity>
@@ -683,41 +789,40 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
 
         {/* ── Rounds tab ── */}
         {tab === 'rounds' && (
-          <View style={styles.section}>
+          <View style={nocStyles.section}>
             {rounds.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyText}>No rounds yet.</Text>
+              <View style={nocStyles.empty}>
+                <Text style={nocStyles.emptyText}>No rounds yet.</Text>
               </View>
             ) : (
               <>
-                {/* In-progress & upcoming: highest round number first (current action at top) */}
-                {incompleteRounds.map((round) => renderRoundCard(round))}
+                {/* Active rounds as glass cards */}
+                {incompleteRounds.map((round) => renderActiveRoundCard(round))}
 
-                {completedRounds.length > 0 && incompleteRounds.length > 0 && (
-                  <View style={styles.completedRoundsBreak}>
-                    <View style={styles.completedRoundsBreakLine} />
-                    <Text style={styles.completedRoundsBreakLabel}>Completed rounds</Text>
-                    <View style={styles.completedRoundsBreakLine} />
-                  </View>
+                {/* Completed section */}
+                {completedRounds.length > 0 && (
+                  <>
+                    <View style={nocStyles.completedDivider}>
+                      <View style={nocStyles.completedDividerLine} />
+                      <Text style={nocStyles.completedDividerLabel}>COMPLETED</Text>
+                      <View style={nocStyles.completedDividerLine} />
+                    </View>
+                    <View style={nocStyles.completedList}>
+                      {completedRounds.map((round) => renderCompletedRoundRow(round))}
+                    </View>
+                  </>
                 )}
-
-                {completedRounds.length > 0 && incompleteRounds.length === 0 && (
-                  <Text style={styles.completedRoundsSectionTitle}>Completed rounds</Text>
-                )}
-
-                {/* Finished rounds: highest round number first (most recent completion at top) */}
-                {completedRounds.map((round) => renderRoundCard(round))}
               </>
             )}
 
             {isCommissioner && season.status === 'active' && (
               <TouchableOpacity
-                style={styles.addRoundBtn}
+                style={nocStyles.addRoundBtn}
                 onPress={() => setCreatingRound(true)}
                 activeOpacity={0.7}
               >
-                <Text style={styles.addRoundBtnIcon}>+</Text>
-                <Text style={styles.addRoundBtnText}>Add Round</Text>
+                <Text style={nocStyles.addRoundBtnIcon}>+</Text>
+                <Text style={nocStyles.addRoundBtnText}>Add Round</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -824,28 +929,199 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
   );
 }
 
-const styles = StyleSheet.create({
-  screenRoot: { flex: 1, backgroundColor: '#000' },
-  centered: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  mutedText: { color: '#555', fontSize: 15 },
+// Nocturne-scoped styles for the redesigned Season screen
+const nocStyles = StyleSheet.create({
+  screenRoot: { flex: 1, backgroundColor: 'transparent' },
+  root: {
+    padding: 22,
+    paddingBottom: 140,
+    gap: 12,
+  },
+  pageTitle: {
+    fontFamily: fonts.serifBlack,
+    fontSize: 36,
+    color: nocturne.ink,
+    letterSpacing: -0.8,
+    lineHeight: 40,
+    marginTop: 2,
+  },
+  statusLabel: {
+    fontSize: 11,
+    fontFamily: fonts.sansSemiBold,
+    letterSpacing: 1.6,
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  editBtn: {
+    fontSize: 13,
+    color: nocturne.inkMuted,
+    fontFamily: fonts.sansMedium,
+    marginBottom: 2,
+  },
+  // Compact tab segmented control
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 10,
+    padding: 3,
+    gap: 3,
+    alignSelf: 'flex-start',
+    marginTop: 6,
+  },
+  tabBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 },
+  tabBtnActive: { backgroundColor: 'rgba(255,255,255,0.08)' },
+  tabBtnText: {
+    fontSize: 12,
+    fontFamily: fonts.sansMedium,
+    color: nocturne.inkMuted,
+  },
+  tabBtnTextActive: { color: nocturne.ink, fontFamily: fonts.sansSemiBold },
 
-  root: { backgroundColor: '#000', padding: 24, paddingBottom: 48, gap: 20 },
-  editBtn: { fontSize: 13, color: '#888', fontWeight: '600' },
+  section: { gap: 10, marginTop: 4 },
+  empty: { paddingVertical: 24, alignItems: 'center' },
+  emptyText: {
+    fontSize: 14,
+    color: nocturne.inkFaint,
+    fontFamily: fonts.sans,
+  },
+
+  // Active round glass card
+  activeRoundRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  roundNumberBadge: {
+    fontSize: 11,
+    fontFamily: fonts.sansMedium,
+    color: nocturne.inkMuted,
+    letterSpacing: 0.8,
+  },
+  roundPrompt: {
+    fontFamily: fonts.serif,
+    fontSize: 18,
+    color: nocturne.ink,
+    lineHeight: 24,
+  },
+  roundTimeLeft: {
+    fontSize: 12,
+    color: nocturne.inkMuted,
+    fontFamily: fonts.sans,
+    marginTop: 4,
+  },
+  roundEditBtn: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: nocturne.cardBorder,
+  },
+  roundEditBtnText: {
+    fontSize: 11,
+    color: nocturne.inkMuted,
+    fontFamily: fonts.sansMedium,
+  },
+
+  // Completed section
+  completedDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  completedDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: nocturne.cardBorder,
+  },
+  completedDividerLabel: {
+    fontSize: 10,
+    fontFamily: fonts.sansSemiBold,
+    color: nocturne.inkMuted,
+    letterSpacing: 1.6,
+  },
+  completedList: { gap: 0 },
+  completedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  completedNumber: {
+    fontFamily: fonts.serifItalic,
+    fontSize: 16,
+    color: nocturne.inkFaint,
+    width: 36,
+  },
+  completedBody: { flex: 1, minWidth: 0 },
+  completedPrompt: {
+    fontFamily: fonts.serif,
+    fontSize: 16,
+    color: nocturne.ink,
+    lineHeight: 22,
+  },
+  completedChev: {
+    fontSize: 20,
+    color: nocturne.inkFaint,
+    marginLeft: 8,
+  },
+
+  // Add round
+  addRoundBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: nocturne.cardBorder,
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 12,
+  },
+  addRoundBtnIcon: {
+    fontSize: 18,
+    color: nocturne.blue,
+    fontFamily: fonts.sansBold,
+    lineHeight: 20,
+  },
+  addRoundBtnText: {
+    fontSize: 14,
+    fontFamily: fonts.sansSemiBold,
+    color: nocturne.blue,
+    letterSpacing: 0.3,
+  },
+});
+
+const styles = StyleSheet.create({
+  screenRoot: { flex: 1, backgroundColor: colors.bgPrimary },
+  centered: { flex: 1, backgroundColor: colors.bgPrimary, alignItems: 'center', justifyContent: 'center' },
+  mutedText: { color: colors.textMuted, fontSize: 15 },
+
+  root: { backgroundColor: colors.bgPrimary, padding: 24, paddingBottom: 48, gap: 20 },
+  editBtn: { fontSize: 13, color: colors.textSecondary, fontWeight: '600' },
 
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  pageTitle: { fontSize: 28, fontWeight: '800', color: '#fff', flex: 1 },
+  pageTitle: { fontSize: 28, fontWeight: '800', color: colors.textPrimary, flex: 1 },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  statusActive: { backgroundColor: '#1DB95422' },
-  statusDone: { backgroundColor: '#33333388' },
-  statusText: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#1DB954' },
-  seasonMeta: { fontSize: 13, color: '#555', marginTop: -12 },
+  statusActive: { backgroundColor: colors.brandFaint },
+  statusDone: { backgroundColor: colors.bgStatusDone },
+  statusText: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: colors.brand },
+  seasonMeta: { fontSize: 13, color: colors.textMuted, marginTop: -12 },
 
   // Tab bar
-  tabBar: { flexDirection: 'row', backgroundColor: '#111', borderRadius: 10, padding: 3, gap: 3 },
+  tabBar: { flexDirection: 'row', backgroundColor: colors.surface1, borderRadius: 10, padding: 3, gap: 3 },
   tabBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
-  tabBtnActive: { backgroundColor: '#1a1a1a' },
-  tabBtnText: { fontSize: 13, fontWeight: '600', color: '#555' },
-  tabBtnTextActive: { color: '#fff' },
+  tabBtnActive: { backgroundColor: colors.surface2 },
+  tabBtnText: { fontSize: 13, fontWeight: '600', color: colors.textMuted },
+  tabBtnTextActive: { color: colors.textPrimary },
 
   section: { gap: 12 },
 
@@ -856,37 +1132,37 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 4,
   },
-  completedRoundsBreakLine: { flex: 1, height: 1, backgroundColor: '#2a2a2a' },
+  completedRoundsBreakLine: { flex: 1, height: 1, backgroundColor: colors.surface4 },
   completedRoundsBreakLabel: {
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.2,
-    color: '#666',
+    color: colors.textLabel,
   },
   completedRoundsSectionTitle: {
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1,
-    color: '#666',
+    color: colors.textLabel,
     marginBottom: 4,
     marginTop: 2,
   },
 
   empty: { paddingVertical: 24, alignItems: 'center' },
-  emptyText: { fontSize: 14, color: '#444' },
+  emptyText: { fontSize: 14, color: colors.textDim },
 
-  roundCard: { backgroundColor: '#111', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#222', gap: 8 },
+  roundCard: { backgroundColor: colors.surface1, borderRadius: 12, padding: 16, borderWidth: 1, borderColor: colors.border, gap: 8 },
   roundHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   roundHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  roundNumber: { fontSize: 13, fontWeight: '800', color: '#fff' },
+  roundNumber: { fontSize: 13, fontWeight: '800', color: colors.textPrimary },
   roundStatus: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  roundEditBtn: { backgroundColor: '#1a1a1a', borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#2a2a2a' },
-  roundEditBtnText: { fontSize: 11, color: '#888', fontWeight: '600' },
-  roundPrompt: { fontSize: 15, color: '#ccc', lineHeight: 20, fontWeight: '700' },
-  roundDescription: { fontSize: 13, color: '#777', lineHeight: 18, marginTop: -2 },
+  roundEditBtn: { backgroundColor: colors.surface2, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: colors.borderInput },
+  roundEditBtnText: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
+  roundPrompt: { fontSize: 15, color: colors.textLight, lineHeight: 20, fontWeight: '700' },
+  roundDescription: { fontSize: 13, color: colors.textSubtle, lineHeight: 18, marginTop: -2 },
   roundDates: { gap: 2, marginTop: 4 },
-  dateLabel: { fontSize: 11, color: '#555' },
-  dateValue: { color: '#888' },
+  dateLabel: { fontSize: 11, color: colors.textMuted },
+  dateValue: { color: colors.textSecondary },
 
   // Add round CTA
   addRoundBtn: {
@@ -897,44 +1173,44 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: '#333',
+    borderColor: colors.borderStrong,
     borderRadius: 12,
     padding: 16,
     marginTop: 4,
   },
   addRoundBtnIcon: {
     fontSize: 18,
-    color: '#1DB954',
+    color: colors.brand,
     fontWeight: '800',
     lineHeight: 20,
   },
   addRoundBtnText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1DB954',
+    color: colors.brand,
     letterSpacing: 0.3,
   },
 
   forfeitFootnote: {
     fontSize: 11,
-    color: '#777',
+    color: colors.textSubtle,
     fontStyle: 'italic',
     marginTop: 2,
   },
 
   // Submission status on active round cards
-  submissionStatus: { gap: 6, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#1a1a1a', marginTop: 2 },
+  submissionStatus: { gap: 6, paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.borderSubtle, marginTop: 2 },
   avatarStackRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   avatarStackLabel: { fontSize: 11, fontWeight: '700', width: 90 },
   avatarStackAvatars: { flexDirection: 'row', alignItems: 'center' },
-  avatarStackBubble: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#2a2a2a', borderWidth: 1.5, borderColor: '#111', alignItems: 'center', justifyContent: 'center' },
-  avatarStackInitial: { fontSize: 10, fontWeight: '700', color: '#fff' },
-  avatarStackOverflow: { backgroundColor: '#222' },
-  avatarStackOverflowText: { fontSize: 9, fontWeight: '700', color: '#888' },
+  avatarStackBubble: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.surface4, borderWidth: 1.5, borderColor: colors.surface1, alignItems: 'center', justifyContent: 'center' },
+  avatarStackInitial: { fontSize: 10, fontWeight: '700', color: colors.textPrimary },
+  avatarStackOverflow: { backgroundColor: colors.surface3 },
+  avatarStackOverflowText: { fontSize: 9, fontWeight: '700', color: colors.textSecondary },
 
   standingsHint: {
     fontSize: 12,
-    color: '#666',
+    color: colors.textLabel,
     lineHeight: 17,
     marginBottom: 4,
   },
@@ -945,67 +1221,67 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: '#151515',
+    borderBottomColor: '#151515', // very dark divider, no token needed
   },
   standingRank: {
     width: 26,
     fontSize: 14,
     fontWeight: '800',
-    color: '#666',
+    color: colors.textLabel,
     textAlign: 'center',
   },
   standingMeta: { flex: 1, minWidth: 0 },
-  standingName: { fontSize: 15, fontWeight: '600', color: '#fff' },
-  standingSub: { fontSize: 11, color: '#555', marginTop: 3 },
+  standingName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  standingSub: { fontSize: 11, color: colors.textMuted, marginTop: 3 },
   standingBadges: { flexDirection: 'row', gap: 6, alignItems: 'center', flexShrink: 0 },
   standingPts: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#1DB954',
+    color: colors.brand,
     minWidth: 44,
     textAlign: 'right',
   },
 
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
-  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#222', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  memberName: { flex: 1, fontSize: 15, color: '#fff', fontWeight: '500' },
+  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface3, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+  memberName: { flex: 1, fontSize: 15, color: colors.textPrimary, fontWeight: '500' },
   memberBadges: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  commBadge: { fontSize: 9, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
-  roleBadge: { fontSize: 9, fontWeight: '700', color: '#555', letterSpacing: 1 },
-  roleBadgeSpectator: { color: '#444' },
+  commBadge: { fontSize: 9, fontWeight: '800', color: colors.brand, letterSpacing: 1 },
+  roleBadge: { fontSize: 9, fontWeight: '700', color: colors.textMuted, letterSpacing: 1 },
+  roleBadgeSpectator: { color: colors.textDim },
   spectatorSection: { marginTop: 16, gap: 8 },
-  spectatorSectionTitle: { fontSize: 11, fontWeight: '700', color: '#444', letterSpacing: 1, textTransform: 'uppercase' },
+  spectatorSectionTitle: { fontSize: 11, fontWeight: '700', color: colors.textDim, letterSpacing: 1, textTransform: 'uppercase' },
   spectatorRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4, opacity: 0.6 },
-  spectatorName: { flex: 1, fontSize: 14, color: '#888', fontWeight: '500' },
+  spectatorName: { flex: 1, fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
 
   // Stepper
   stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
-  stepBtn: { width: 44, height: 44, backgroundColor: '#111', borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
-  stepBtnTxt: { fontSize: 22, color: '#fff', fontWeight: '300' },
-  stepVal: { minWidth: 52, textAlign: 'center', fontSize: 20, fontWeight: '700', color: '#fff' },
+  stepBtn: { width: 44, height: 44, backgroundColor: colors.surface1, borderWidth: 1, borderColor: colors.borderInput, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  stepBtnTxt: { fontSize: 22, color: colors.textPrimary, fontWeight: '300' },
+  stepVal: { minWidth: 52, textAlign: 'center', fontSize: 20, fontWeight: '700', color: colors.textPrimary },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
-  stepperUnit: { fontSize: 14, color: '#555' },
+  stepperUnit: { fontSize: 14, color: colors.textMuted },
 
   // Date picker
-  dateField: { backgroundColor: '#111', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#2a2a2a', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  dateFieldText: { fontSize: 15, color: '#fff' },
+  dateField: { backgroundColor: colors.surface1, borderRadius: 10, padding: 14, borderWidth: 1, borderColor: colors.borderInput, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  dateFieldText: { fontSize: 15, color: colors.textPrimary },
   dateFieldIcon: { fontSize: 16 },
   pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  pickerSheet: { backgroundColor: '#1a1a1a', borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 32 },
-  pickerToolbar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#2a2a2a' },
-  pickerCancel: { fontSize: 15, color: '#888' },
-  pickerDone: { fontSize: 15, color: '#1DB954', fontWeight: '700' },
+  pickerSheet: { backgroundColor: colors.surface2, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 32 },
+  pickerToolbar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.borderInput },
+  pickerCancel: { fontSize: 15, color: colors.textSecondary },
+  pickerDone: { fontSize: 15, color: colors.brand, fontWeight: '700' },
 
   // Edit modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: '#0d0d0d', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
-  modalTitle: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  modalCancel: { fontSize: 15, color: '#888' },
-  modalSave: { fontSize: 15, color: '#1DB954', fontWeight: '700' },
+  modalSheet: { backgroundColor: colors.bgCardDark, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
+  modalTitle: { fontSize: 15, fontWeight: '700', color: colors.textPrimary },
+  modalCancel: { fontSize: 15, color: colors.textSecondary },
+  modalSave: { fontSize: 15, color: colors.brand, fontWeight: '700' },
   modalBody: { padding: 20, paddingBottom: 48, gap: 4 },
-  modalInput: { backgroundColor: '#111', borderRadius: 10, padding: 14, fontSize: 15, color: '#fff', borderWidth: 1, borderColor: '#2a2a2a', marginTop: 8 },
-  fieldLabel: { fontSize: 11, fontWeight: '800', color: '#555', letterSpacing: 1.2, textTransform: 'uppercase' },
-  fieldHint: { fontSize: 11, color: '#444', marginTop: 2 },
+  modalInput: { backgroundColor: colors.surface1, borderRadius: 10, padding: 14, fontSize: 15, color: colors.textPrimary, borderWidth: 1, borderColor: colors.borderInput, marginTop: 8 },
+  fieldLabel: { fontSize: 11, fontWeight: '800', color: colors.textMuted, letterSpacing: 1.2, textTransform: 'uppercase' },
+  fieldHint: { fontSize: 11, color: colors.textDim, marginTop: 2 },
 });

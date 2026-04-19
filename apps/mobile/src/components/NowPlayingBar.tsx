@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlayback } from '@/playback/PlaybackContext';
 import { SwipeSheet } from '@/components/SwipeSheet';
+import { colors } from '@/theme/colors';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -72,11 +73,11 @@ function SeekBar({
 const seekStyles = StyleSheet.create({
   wrap: { width: '100%', gap: 6 },
   hitArea: { height: 28, justifyContent: 'center', width: '100%' },
-  track: { height: 4, backgroundColor: '#333', borderRadius: 2, overflow: 'hidden' },
-  fill: { height: 4, backgroundColor: '#fff', borderRadius: 2 },
-  thumb: { position: 'absolute', width: 12, height: 12, borderRadius: 6, backgroundColor: '#fff', top: 8 },
+  track: { height: 4, backgroundColor: colors.surface5, borderRadius: 2, overflow: 'hidden' },
+  fill: { height: 4, backgroundColor: colors.textPrimary, borderRadius: 2 },
+  thumb: { position: 'absolute', width: 12, height: 12, borderRadius: 6, backgroundColor: colors.textPrimary, top: 8 },
   labels: { flexDirection: 'row', justifyContent: 'space-between' },
-  time: { fontSize: 11, color: '#666' },
+  time: { fontSize: 11, color: colors.textLabel },
 });
 
 // ─── ControlBtn ───────────────────────────────────────────────────────────────
@@ -104,11 +105,11 @@ function ControlBtn({
 }
 
 const ctrlStyles = StyleSheet.create({
-  btn: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#222', alignItems: 'center', justifyContent: 'center' },
-  btnLarge: { width: 68, height: 68, borderRadius: 34, backgroundColor: '#fff' },
+  btn: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.surface3, alignItems: 'center', justifyContent: 'center' },
+  btnLarge: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.textPrimary },
   btnDisabled: { opacity: 0.3 },
-  label: { fontSize: 20, color: '#fff' },
-  labelLarge: { fontSize: 26, color: '#000' },
+  label: { fontSize: 20, color: colors.textPrimary },
+  labelLarge: { fontSize: 26, color: colors.bgPrimary },
 });
 
 // ─── Album art swiper (inside modal) ─────────────────────────────────────────
@@ -260,10 +261,10 @@ const artSwiperStyles = StyleSheet.create({
     paddingBottom: 4,
   },
   art: { width: ART_SIZE, height: ART_SIZE, borderRadius: 12 },
-  placeholder: { backgroundColor: '#111', alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
-  placeholderText: { fontSize: 64, color: '#333' },
-  title: { fontSize: 22, fontWeight: '700', color: '#fff', textAlign: 'center', paddingHorizontal: 32 },
-  artist: { fontSize: 15, color: '#888', textAlign: 'center', paddingHorizontal: 32 },
+  placeholder: { backgroundColor: colors.surface1, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
+  placeholderText: { fontSize: 64, color: colors.textFaint },
+  title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, textAlign: 'center', paddingHorizontal: 32 },
+  artist: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', paddingHorizontal: 32 },
 });
 
 // ─── Full-screen modal ────────────────────────────────────────────────────────
@@ -287,7 +288,7 @@ function NowPlayingModal({ visible, onClose }: { visible: boolean; onClose: () =
       closeDuration={300}
       dismissThreshold={80}
       dismissVelocityThreshold={0.5}
-      backgroundColor="#000"
+      backgroundColor={colors.bgPrimary}
       backdropColor="rgba(0,0,0,0.45)"
       renderHeaderRight={({ dismiss }) => (
         <TouchableOpacity onPress={dismiss} style={modalStyles.collapseBtn} hitSlop={{ top: 12, bottom: 12, left: 24, right: 24 }}>
@@ -334,7 +335,7 @@ const modalStyles = StyleSheet.create({
   collapseBtn: { paddingVertical: 4, paddingHorizontal: 4 },
   collapseIcon: {
     fontSize: 28,
-    color: '#888',
+    color: colors.textSecondary,
     lineHeight: 32,
   },
   content: {
@@ -346,22 +347,22 @@ const modalStyles = StyleSheet.create({
   heading: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#666',
+    color: colors.textLabel,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
   },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 24, marginTop: 8 },
   votingPlaceholder: {
     width: '100%',
-    backgroundColor: '#111',
+    backgroundColor: colors.surface1,
     borderRadius: 12,
     padding: 16,
     gap: 6,
     borderWidth: 1,
-    borderColor: '#222',
+    borderColor: colors.border,
   },
-  votingLabel: { fontSize: 10, fontWeight: '800', color: '#1DB954', letterSpacing: 1.5 },
-  votingBody: { fontSize: 13, color: '#555', lineHeight: 18 },
+  votingLabel: { fontSize: 10, fontWeight: '800', color: colors.brand, letterSpacing: 1.5 },
+  votingBody: { fontSize: 13, color: colors.textMuted, lineHeight: 18 },
 });
 
 // ─── Mini bar ─────────────────────────────────────────────────────────────────
@@ -519,9 +520,9 @@ const barStyles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#111',
+    backgroundColor: colors.surface1,
     borderTopWidth: 1,
-    borderTopColor: '#222',
+    borderTopColor: colors.border,
     paddingRight: 12,
     paddingVertical: 8,
   },
@@ -548,19 +549,19 @@ const barStyles = StyleSheet.create({
   },
   emptyPanel: { flex: 1 },
   art: { width: 40, height: 40, borderRadius: 6, flexShrink: 0 },
-  artPlaceholder: { backgroundColor: '#222', alignItems: 'center', justifyContent: 'center' },
-  artPlaceholderText: { fontSize: 18, color: '#555' },
+  artPlaceholder: { backgroundColor: colors.surface3, alignItems: 'center', justifyContent: 'center' },
+  artPlaceholderText: { fontSize: 18, color: colors.textMuted },
   info: { flex: 1, gap: 2 },
-  trackTitle: { fontSize: 14, fontWeight: '600', color: '#fff' },
-  trackArtist: { fontSize: 12, color: '#888' },
+  trackTitle: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  trackArtist: { fontSize: 12, color: colors.textSecondary },
   playBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#222',
+    backgroundColor: colors.surface3,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  playBtnText: { fontSize: 14, color: '#fff' },
+  playBtnText: { fontSize: 14, color: colors.textPrimary },
 });

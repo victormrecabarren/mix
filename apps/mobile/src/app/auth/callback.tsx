@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { colors } from '@/theme/colors';
 
 // This route handles the rare case where the app is cold-launched
 // via the mix://auth/callback deep link (e.g. on Android).
@@ -15,7 +16,7 @@ export default function AuthCallback() {
 
   return (
     <View style={styles.container}>
-      <ActivityIndicator size="large" color="#fff" />
+      <ActivityIndicator size="large" color={colors.textPrimary} />
     </View>
   );
 }
@@ -23,7 +24,7 @@ export default function AuthCallback() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: colors.bgPrimary,
     alignItems: 'center',
     justifyContent: 'center',
   },

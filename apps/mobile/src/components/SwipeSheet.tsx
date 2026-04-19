@@ -11,6 +11,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors } from '@/theme/colors';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -45,7 +46,7 @@ export function SwipeSheet({
   onRequestClose,
   children,
   renderHeaderRight,
-  backgroundColor = '#000',
+  backgroundColor = colors.bgPrimary,
   backdropColor = 'rgba(0,0,0,0.45)',
   sheetStyle,
   contentStyle,
@@ -187,7 +188,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#444',
+    backgroundColor: colors.textDim,
   },
   headerRight: {
     position: 'absolute',

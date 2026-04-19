@@ -8,6 +8,7 @@ import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { Stack, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useLeague } from '@/context/LeagueContext';
+import { colors } from '@/theme/colors';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -111,7 +112,7 @@ function DateTimeField({ value, onChange }: { value: Date; onChange: (d: Date) =
               onValueChange={(_, d) => d && setTemp(d)}
               onDismiss={() => setOpen(false)}
               themeVariant="dark"
-              textColor="#fff"
+              textColor={colors.textPrimary}
               style={{ width: '100%' }}
             />
           </View>
@@ -133,7 +134,7 @@ function StepSeason({ form, onChange }: { form: SeasonForm; onChange: (f: Season
         <TextInput
           style={styles.input}
           placeholder="e.g. Spring 2026"
-          placeholderTextColor="#555"
+          placeholderTextColor={colors.textMuted}
           value={form.name}
           onChangeText={(name) => onChange({ ...form, name })}
           autoFocus
@@ -205,8 +206,8 @@ function StepSeason({ form, onChange }: { form: SeasonForm; onChange: (f: Season
           <Switch
             value={form.hasParticipantCap}
             onValueChange={(v) => onChange({ ...form, hasParticipantCap: v, participantCap: v ? '10' : '' })}
-            trackColor={{ true: '#1DB954', false: '#333' }}
-            thumbColor="#fff"
+            trackColor={{ true: colors.brand, false: colors.surface5 }}
+            thumbColor={colors.textPrimary}
           />
           {form.hasParticipantCap && (
             <TextInput
@@ -215,7 +216,7 @@ function StepSeason({ form, onChange }: { form: SeasonForm; onChange: (f: Season
               onChangeText={(participantCap) => onChange({ ...form, participantCap })}
               keyboardType="number-pad"
               placeholder="10"
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textMuted}
             />
           )}
         </View>
@@ -257,7 +258,7 @@ function StepRounds({
             <TextInput
               style={[styles.input, styles.inputMultiline]}
               placeholder="e.g. A song that changed your life"
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textMuted}
               value={round.prompt}
               onChangeText={(prompt) => onUpdate(round.key, { prompt })}
               multiline
@@ -268,7 +269,7 @@ function StepRounds({
             <TextInput
               style={[styles.input, styles.inputMultiline]}
               placeholder="e.g. Tell us why this track earns its spot."
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textMuted}
               value={round.description}
               onChangeText={(description) => onUpdate(round.key, { description })}
               multiline
@@ -462,7 +463,7 @@ export function CreateSeasonFlow() {
               disabled={!canSubmit || submitting}
             >
               {submitting
-                ? <ActivityIndicator color="#000" />
+                ? <ActivityIndicator color={colors.bgPrimary} />
                 : <Text style={styles.nextBtnText}>Create Season</Text>}
             </TouchableOpacity>
           )}
@@ -475,63 +476,63 @@ export function CreateSeasonFlow() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000' },
+  root: { flex: 1, backgroundColor: colors.bgPrimary },
   headerSpacer: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 8, alignItems: 'flex-end' },
-  headerActionText: { color: '#fff', fontSize: 30, lineHeight: 30, marginLeft: 2 },
+  headerActionText: { color: colors.textPrimary, fontSize: 30, lineHeight: 30, marginLeft: 2 },
   stepDots: { flexDirection: 'row', gap: 6 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#333' },
-  dotActive: { backgroundColor: '#1DB954', width: 24 },
-  dotDone: { backgroundColor: '#1DB954' },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.surface5 },
+  dotActive: { backgroundColor: colors.brand, width: 24 },
+  dotDone: { backgroundColor: colors.brand },
 
   scroll: { padding: 24, paddingBottom: 48 },
   stepWrap: { gap: 24 },
-  stepTitle: { fontSize: 26, fontWeight: '800', color: '#fff' },
-  stepSubtitle: { fontSize: 13, color: '#555', marginTop: -16, lineHeight: 18 },
+  stepTitle: { fontSize: 26, fontWeight: '800', color: colors.textPrimary },
+  stepSubtitle: { fontSize: 13, color: colors.textMuted, marginTop: -16, lineHeight: 18 },
 
   fieldWrap: { gap: 6 },
-  fieldLabel: { fontSize: 12, fontWeight: '700', color: '#666', letterSpacing: 0.8, textTransform: 'uppercase' },
-  fieldHint: { fontSize: 11, color: '#444', marginTop: -2 },
+  fieldLabel: { fontSize: 12, fontWeight: '700', color: colors.textLabel, letterSpacing: 0.8, textTransform: 'uppercase' },
+  fieldHint: { fontSize: 11, color: colors.textDim, marginTop: -2 },
 
-  input: { backgroundColor: '#111', borderRadius: 10, padding: 14, fontSize: 15, color: '#fff', borderWidth: 1, borderColor: '#2a2a2a' },
+  input: { backgroundColor: colors.surface1, borderRadius: 10, padding: 14, fontSize: 15, color: colors.textPrimary, borderWidth: 1, borderColor: colors.borderInput },
   inputMultiline: { minHeight: 72, textAlignVertical: 'top' },
   inputSmall: { width: 72, paddingVertical: 10, textAlign: 'center' },
 
-  divider: { height: 1, backgroundColor: '#1a1a1a' },
-  groupLabel: { fontSize: 11, fontWeight: '800', color: '#444', letterSpacing: 1.5 },
+  divider: { height: 1, backgroundColor: colors.borderSubtle },
+  groupLabel: { fontSize: 11, fontWeight: '800', color: colors.textDim, letterSpacing: 1.5 },
 
   stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
-  stepBtn: { width: 44, height: 44, backgroundColor: '#111', borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
-  stepBtnTxt: { fontSize: 22, color: '#fff', fontWeight: '300' },
-  stepVal: { minWidth: 52, textAlign: 'center', fontSize: 20, fontWeight: '700', color: '#fff' },
+  stepBtn: { width: 44, height: 44, backgroundColor: colors.surface1, borderWidth: 1, borderColor: colors.borderInput, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
+  stepBtnTxt: { fontSize: 22, color: colors.textPrimary, fontWeight: '300' },
+  stepVal: { minWidth: 52, textAlign: 'center', fontSize: 20, fontWeight: '700', color: colors.textPrimary },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  stepperUnit: { fontSize: 14, color: '#555' },
+  stepperUnit: { fontSize: 14, color: colors.textMuted },
 
-  cadenceSummary: { backgroundColor: '#111', borderRadius: 8, padding: 12 },
-  cadenceSummaryText: { fontSize: 13, color: '#555' },
-  cadenceHighlight: { color: '#1DB954', fontWeight: '700' },
+  cadenceSummary: { backgroundColor: colors.surface1, borderRadius: 8, padding: 12 },
+  cadenceSummaryText: { fontSize: 13, color: colors.textMuted },
+  cadenceHighlight: { color: colors.brand, fontWeight: '700' },
 
   capRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  capLabel: { fontSize: 14, color: '#555' },
+  capLabel: { fontSize: 14, color: colors.textMuted },
 
-  dateField: { backgroundColor: '#111', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#2a2a2a', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  dateFieldText: { fontSize: 15, color: '#fff' },
+  dateField: { backgroundColor: colors.surface1, borderRadius: 10, padding: 14, borderWidth: 1, borderColor: colors.borderInput, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  dateFieldText: { fontSize: 15, color: colors.textPrimary },
   dateFieldIcon: { fontSize: 16 },
 
   pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  pickerSheet: { backgroundColor: '#1a1a1a', borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 32 },
-  pickerToolbar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#2a2a2a' },
-  pickerCancel: { fontSize: 15, color: '#888' },
-  pickerDone: { fontSize: 15, color: '#1DB954', fontWeight: '700' },
+  pickerSheet: { backgroundColor: colors.surface2, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 32 },
+  pickerToolbar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.borderInput },
+  pickerCancel: { fontSize: 15, color: colors.textSecondary },
+  pickerDone: { fontSize: 15, color: colors.brand, fontWeight: '700' },
 
-  roundBlock: { backgroundColor: '#0d0d0d', borderRadius: 12, padding: 16, gap: 16, borderWidth: 1, borderColor: '#1a1a1a' },
+  roundBlock: { backgroundColor: colors.bgCardDark, borderRadius: 12, padding: 16, gap: 16, borderWidth: 1, borderColor: colors.borderSubtle },
   roundBlockHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  roundBlockTitle: { fontSize: 14, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
-  removeText: { fontSize: 13, color: '#c0392b' },
-  addRoundBtn: { padding: 16, borderRadius: 10, borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center' },
-  addRoundBtnText: { fontSize: 14, color: '#555', fontWeight: '600' },
+  roundBlockTitle: { fontSize: 14, fontWeight: '800', color: colors.textPrimary, letterSpacing: 0.5 },
+  removeText: { fontSize: 13, color: colors.danger },
+  addRoundBtn: { padding: 16, borderRadius: 10, borderWidth: 1, borderColor: colors.borderInput, alignItems: 'center' },
+  addRoundBtnText: { fontSize: 14, color: colors.textMuted, fontWeight: '600' },
 
-  footer: { padding: 24, paddingBottom: 36, borderTopWidth: 1, borderTopColor: '#111' },
-  nextBtn: { backgroundColor: '#1DB954', padding: 16, borderRadius: 12, alignItems: 'center' },
+  footer: { padding: 24, paddingBottom: 36, borderTopWidth: 1, borderTopColor: colors.surface1 },
+  nextBtn: { backgroundColor: colors.brand, padding: 16, borderRadius: 12, alignItems: 'center' },
   btnDisabled: { opacity: 0.35 },
-  nextBtnText: { fontSize: 16, fontWeight: '800', color: '#000' },
+  nextBtnText: { fontSize: 16, fontWeight: '800', color: colors.bgPrimary },
 });

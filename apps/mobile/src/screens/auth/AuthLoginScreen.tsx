@@ -5,6 +5,7 @@ import { loginWithSpotify, getValidAccessToken } from '@/lib/spotifyAuth';
 import { signInToSupabase } from '@/lib/supabaseAuth';
 import { useSession } from '@/context/SessionContext';
 import { supabase } from '@/lib/supabase';
+import { colors } from '@/theme/colors';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -67,7 +68,7 @@ export function AuthLoginScreen() {
         disabled={loading}
       >
         {loading ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color={colors.textPrimary} />
         ) : (
           <Text style={styles.buttonLabel}>Continue with Spotify</Text>
         )}
@@ -79,7 +80,7 @@ export function AuthLoginScreen() {
           <TextInput
             style={styles.devInput}
             placeholder="email"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textMuted}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
@@ -88,7 +89,7 @@ export function AuthLoginScreen() {
           <TextInput
             style={styles.devInput}
             placeholder="password"
-            placeholderTextColor="#555"
+            placeholderTextColor={colors.textMuted}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -109,7 +110,7 @@ export function AuthLoginScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: colors.bgPrimary,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -118,7 +119,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 48,
     fontWeight: '900',
-    color: '#fff',
+    color: colors.textPrimary,
     letterSpacing: -2,
   },
   button: {
@@ -126,12 +127,12 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#1DB954',
+    backgroundColor: colors.brand,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonBusy: { opacity: 0.7 },
-  buttonLabel: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  buttonLabel: { color: colors.textPrimary, fontSize: 16, fontWeight: '600' },
   devBox: {
     width: '100%',
     maxWidth: 320,
@@ -139,25 +140,25 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#333',
-    backgroundColor: '#0a0a0a',
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.bgDeep,
   },
-  devLabel: { fontSize: 10, fontWeight: '800', color: '#555', letterSpacing: 1.5 },
+  devLabel: { fontSize: 10, fontWeight: '800', color: colors.textMuted, letterSpacing: 1.5 },
   devInput: {
     height: 44,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: colors.borderStrong,
     paddingHorizontal: 12,
-    color: '#fff',
+    color: colors.textPrimary,
     fontSize: 14,
   },
   devBtn: {
     height: 44,
     borderRadius: 8,
-    backgroundColor: '#222',
+    backgroundColor: colors.surface3,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  devBtnLabel: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  devBtnLabel: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
 });

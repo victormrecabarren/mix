@@ -1,6 +1,7 @@
 import { useLocalSearchParams } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import { SeasonScreen } from '@/screens/season/SeasonScreen';
+import { colors } from '@/theme/colors';
 
 export default function SeasonPage() {
   const { id, initialTab } = useLocalSearchParams<{ id: string; initialTab: string }>();
@@ -17,6 +18,6 @@ export default function SeasonPage() {
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  error: { color: '#555', fontSize: 15 },
+  centered: { flex: 1, backgroundColor: colors.bgPrimary, alignItems: 'center', justifyContent: 'center' },
+  error: { color: colors.textMuted, fontSize: 15 },
 });

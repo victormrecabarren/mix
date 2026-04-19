@@ -1,5 +1,19 @@
 import { useEffect } from "react";
+import { ActivityIndicator, View } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
+import { useFonts } from "expo-font";
+import {
+  Fraunces_700Bold,
+  Fraunces_900Black,
+  Fraunces_700Bold_Italic,
+  Fraunces_900Black_Italic,
+} from "@expo-google-fonts/fraunces";
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from "@expo-google-fonts/inter";
 import { SessionProvider, useSession } from "@/context/SessionContext";
 import { LeagueProvider } from "@/context/LeagueContext";
 import { SpotifyPlayerProvider, useSpotifyPlayer } from "@/playback/SpotifyWebPlayer";
@@ -38,6 +52,25 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Fraunces_700Bold,
+    Fraunces_900Black,
+    Fraunces_700Bold_Italic,
+    Fraunces_900Black_Italic,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color="#9B7BE8" />
+      </View>
+    );
+  }
+
   return (
     <SessionProvider>
       <SpotifyPlayerProvider>
@@ -45,7 +78,7 @@ export default function RootLayout() {
         <PlaybackProvider>
         <LeagueProvider>
         <AuthGate>
-          <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
+          <Stack screenOptions={{ headerShown: false, animation: "fade", contentStyle: { backgroundColor: "#000" } }}>
             <Stack.Screen name="(auth)/index" />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="auth/callback" />

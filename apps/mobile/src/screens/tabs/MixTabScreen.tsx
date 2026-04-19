@@ -5,6 +5,7 @@ import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useLeague } from '@/context/LeagueContext';
 import { RoundScreen } from '@/screens/round/RoundScreen';
+import { colors } from '@/theme/colors';
 
 type ActiveRound = {
   roundId: string;
@@ -72,7 +73,7 @@ export function MixTabScreen() {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.centered}>
-          <ActivityIndicator color="#555" />
+          <ActivityIndicator color={colors.textMuted} />
         </View>
       </SafeAreaView>
     );
@@ -121,7 +122,7 @@ export function MixTabScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#000' },
+  safeArea: { flex: 1, backgroundColor: colors.bgPrimary },
   centered: {
     flex: 1,
     alignItems: 'center',
@@ -132,11 +133,11 @@ const styles = StyleSheet.create({
   leagueName: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1DB954',
+    color: colors.brand,
     letterSpacing: 1,
     textTransform: 'uppercase',
     marginBottom: 8,
   },
-  label: { fontSize: 18, fontWeight: '700', color: '#fff' },
-  body: { fontSize: 14, color: '#555', textAlign: 'center', lineHeight: 20 },
+  label: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
+  body: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
 });

@@ -5,6 +5,7 @@ import { usePlayback } from '@/playback/PlaybackContext';
 import { useSession } from '@/context/SessionContext';
 import { useLeague } from '@/context/LeagueContext';
 import { supabase } from '@/lib/supabase';
+import { colors } from '@/theme/colors';
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -69,13 +70,13 @@ const seekStyles = StyleSheet.create({
   },
   track: {
     height: 4,
-    backgroundColor: '#333',
+    backgroundColor: colors.surface5,
     borderRadius: 2,
     overflow: 'hidden',
   },
   fill: {
     height: 4,
-    backgroundColor: '#fff',
+    backgroundColor: colors.textPrimary,
     borderRadius: 2,
   },
   thumb: {
@@ -83,14 +84,14 @@ const seekStyles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: '#fff',
+    backgroundColor: colors.textPrimary,
     top: 8,
   },
   labels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  time: { fontSize: 11, color: '#666' },
+  time: { fontSize: 11, color: colors.textLabel },
 });
 
 function ControlBtn({
@@ -120,7 +121,7 @@ const ctrlStyles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#222',
+    backgroundColor: colors.surface3,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -128,11 +129,11 @@ const ctrlStyles = StyleSheet.create({
     width: 68,
     height: 68,
     borderRadius: 34,
-    backgroundColor: '#fff',
+    backgroundColor: colors.textPrimary,
   },
   btnDisabled: { opacity: 0.3 },
-  label: { fontSize: 20, color: '#fff' },
-  labelLarge: { fontSize: 26, color: '#000' },
+  label: { fontSize: 20, color: colors.textPrimary },
+  labelLarge: { fontSize: 26, color: colors.bgPrimary },
 });
 
 export function ProfileTabScreen() {
@@ -196,7 +197,7 @@ export function ProfileTabScreen() {
 
   return (
     <ScrollView
-      style={{ backgroundColor: '#000' }}
+      style={{ backgroundColor: colors.bgPrimary }}
       contentContainerStyle={[styles.root, { paddingTop: insets.top + 16 }]}
       showsVerticalScrollIndicator={false}
     >
@@ -251,7 +252,7 @@ export function ProfileTabScreen() {
 
 const styles = StyleSheet.create({
   root: {
-    backgroundColor: '#000',
+    backgroundColor: colors.bgPrimary,
     padding: 32,
     paddingBottom: 48,
     gap: 40,
@@ -263,32 +264,32 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: '#222',
+    backgroundColor: colors.surface3,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
   },
-  avatarText: { fontSize: 26, fontWeight: '700', color: '#fff' },
-  displayName: { fontSize: 22, fontWeight: '800', color: '#fff' },
-  email: { fontSize: 13, color: '#555' },
+  avatarText: { fontSize: 26, fontWeight: '700', color: colors.textPrimary },
+  displayName: { fontSize: 22, fontWeight: '800', color: colors.textPrimary },
+  email: { fontSize: 13, color: colors.textMuted },
   signOutBtn: {
     marginTop: 4,
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: colors.borderStrong,
   },
-  signOutLabel: { fontSize: 14, color: '#666' },
+  signOutLabel: { fontSize: 14, color: colors.textLabel },
   devBtn: { paddingVertical: 6, paddingHorizontal: 12 },
-  devBtnLabel: { fontSize: 12, color: '#444' },
+  devBtnLabel: { fontSize: 12, color: colors.textDim },
 
   // Now Playing section
   playerSection: { alignItems: 'center', gap: 16 },
   sectionTitle: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#444',
+    color: colors.textDim,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
     alignSelf: 'flex-start',
@@ -297,13 +298,13 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderRadius: 12,
-    backgroundColor: '#111',
+    backgroundColor: colors.surface1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  artPlaceholderText: { fontSize: 56, color: '#333' },
+  artPlaceholderText: { fontSize: 56, color: colors.textFaint },
   trackInfo: { alignItems: 'center', gap: 4, width: '100%' },
-  trackTitle: { fontSize: 20, fontWeight: '700', color: '#fff', textAlign: 'center' },
-  trackArtist: { fontSize: 14, color: '#888', textAlign: 'center' },
+  trackTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, textAlign: 'center' },
+  trackArtist: { fontSize: 14, color: colors.textSecondary, textAlign: 'center' },
   controls: { flexDirection: 'row', alignItems: 'center', gap: 24, marginTop: 4 },
 });

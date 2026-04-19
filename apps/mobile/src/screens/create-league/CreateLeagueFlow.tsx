@@ -7,6 +7,7 @@ import { KeyboardScroll } from '@/components/KeyboardScroll';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useLeague } from '@/context/LeagueContext';
+import { colors } from '@/theme/colors';
 
 type PlaylistMode = 'fresh' | 'cloned' | 'linked';
 
@@ -73,7 +74,7 @@ export function CreateLeagueFlow() {
             <TextInput
               style={styles.input}
               placeholder="e.g. The Crate Diggers"
-              placeholderTextColor="#555"
+              placeholderTextColor={colors.textMuted}
               value={form.name}
               onChangeText={(name) => setForm({ ...form, name })}
               autoFocus
@@ -100,7 +101,7 @@ export function CreateLeagueFlow() {
               <TextInput
                 style={styles.input}
                 placeholder="https://open.spotify.com/playlist/..."
-                placeholderTextColor="#555"
+                placeholderTextColor={colors.textMuted}
                 value={form.playlistRef}
                 onChangeText={(playlistRef) => setForm({ ...form, playlistRef })}
                 autoCapitalize="none"
@@ -118,7 +119,7 @@ export function CreateLeagueFlow() {
           disabled={!form.name.trim() || submitting}
         >
           {submitting
-            ? <ActivityIndicator color="#000" />
+            ? <ActivityIndicator color={colors.bgPrimary} />
             : <Text style={styles.createBtnText}>Create League</Text>}
         </TouchableOpacity>
       </View>
@@ -127,31 +128,31 @@ export function CreateLeagueFlow() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000' },
+  root: { flex: 1, backgroundColor: colors.bgPrimary },
   scroll: { padding: 24, paddingBottom: 48, gap: 24 },
 
-  heading: { fontSize: 28, fontWeight: '800', color: '#fff' },
-  subheading: { fontSize: 13, color: '#555', marginTop: -16 },
+  heading: { fontSize: 28, fontWeight: '800', color: colors.textPrimary },
+  subheading: { fontSize: 13, color: colors.textMuted, marginTop: -16 },
 
   fields: { gap: 24 },
   fieldWrap: { gap: 6 },
-  fieldLabel: { fontSize: 12, fontWeight: '700', color: '#666', letterSpacing: 0.8, textTransform: 'uppercase' },
-  fieldHint: { fontSize: 11, color: '#444', marginTop: -2 },
+  fieldLabel: { fontSize: 12, fontWeight: '700', color: colors.textLabel, letterSpacing: 0.8, textTransform: 'uppercase' },
+  fieldHint: { fontSize: 11, color: colors.textDim, marginTop: -2 },
 
   input: {
-    backgroundColor: '#111', borderRadius: 10, padding: 14,
-    fontSize: 15, color: '#fff', borderWidth: 1, borderColor: '#2a2a2a',
+    backgroundColor: colors.surface1, borderRadius: 10, padding: 14,
+    fontSize: 15, color: colors.textPrimary, borderWidth: 1, borderColor: colors.borderInput,
   },
 
   modeList: { gap: 8 },
-  modeCard: { backgroundColor: '#111', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#2a2a2a', gap: 2 },
-  modeCardActive: { borderColor: '#1DB954', backgroundColor: '#0a1f10' },
-  modeLabel: { fontSize: 14, fontWeight: '700', color: '#666' },
-  modeLabelActive: { color: '#1DB954' },
-  modeDesc: { fontSize: 12, color: '#444' },
+  modeCard: { backgroundColor: colors.surface1, borderRadius: 10, padding: 14, borderWidth: 1, borderColor: colors.borderInput, gap: 2 },
+  modeCardActive: { borderColor: colors.brand, backgroundColor: colors.bgBrandTintDeep },
+  modeLabel: { fontSize: 14, fontWeight: '700', color: colors.textLabel },
+  modeLabelActive: { color: colors.brand },
+  modeDesc: { fontSize: 12, color: colors.textDim },
 
-  footer: { padding: 24, paddingBottom: 36, borderTopWidth: 1, borderTopColor: '#111' },
-  createBtn: { backgroundColor: '#1DB954', padding: 16, borderRadius: 12, alignItems: 'center' },
+  footer: { padding: 24, paddingBottom: 36, borderTopWidth: 1, borderTopColor: colors.surface1 },
+  createBtn: { backgroundColor: colors.brand, padding: 16, borderRadius: 12, alignItems: 'center' },
   btnDisabled: { opacity: 0.35 },
-  createBtnText: { fontSize: 16, fontWeight: '800', color: '#000' },
+  createBtnText: { fontSize: 16, fontWeight: '800', color: colors.bgPrimary },
 });

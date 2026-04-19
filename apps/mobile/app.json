@@ -18,7 +18,9 @@
       "bundleIdentifier": "com.victorrecabarren.mix",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "mix uses the microphone for audio playback routing.",
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
@@ -32,7 +34,8 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
