@@ -1,84 +1,24 @@
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
-import { supabase } from '@/lib/supabase';
 import { useLeague } from '@/context/LeagueContext';
+import { useActiveRoundForLeague } from '@/queries/useActiveRoundForLeague';
 import { RoundScreen } from '@/screens/round/RoundScreen';
-
-type ActiveRound = {
-  roundId: string;
-  seasonId: string;
-};
-
-type State =
-  | { status: 'loading' }
-  | { status: 'no_league' }
-  | { status: 'no_season' }
-  | { status: 'no_active_round' }
-  | { status: 'ready'; round: ActiveRound };
-
-async function resolveActiveRound(leagueId: string): Promise<{ round: ActiveRound | null; hasActiveSeason: boolean }> {
-  const { data: season } = await supabase
-    .from('seasons')
-    .select('id')
-    .eq('league_id', leagueId)
-    .eq('status', 'active')
-    .single();
-
-  if (!season) return { round: null, hasActiveSeason: false };
-
-  const { data: round } = await supabase
-    .from('rounds')
-    .select('id')
-    .eq('season_id', season.id)
-    .gt('voting_deadline_at', new Date().toISOString())
-    .order('round_number', { ascending: true })
-    .limit(1)
-    .single();
-
-  return {
-    round: round ? { roundId: round.id, seasonId: season.id } : null,
-    hasActiveSeason: true,
-  };
-}
 
 export function MixTabScreen() {
   const { activeLeagueId, activeLeague } = useLeague();
-  const [state, setState] = useState<State>({ status: 'loading' });
+  const { data, isPending, refetch } = useActiveRoundForLeague(
+    activeLeagueId ?? undefined,
+  );
 
-  const resolve = useCallback(async () => {
-    if (!activeLeagueId) {
-      setState({ status: 'no_league' });
-      return;
-    }
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
 
-    setState({ status: 'loading' });
-    const { round, hasActiveSeason } = await resolveActiveRound(activeLeagueId);
-
-    if (round) {
-      setState({ status: 'ready', round });
-    } else if (hasActiveSeason) {
-      setState({ status: 'no_active_round' });
-    } else {
-      setState({ status: 'no_season' });
-    }
-  }, [activeLeagueId]);
-
-  // Re-resolve when the tab comes into focus (a round may have advanced since last visit)
-  useFocusEffect(useCallback(() => { void resolve(); }, [resolve]));
-
-  if (state.status === 'loading') {
-    return (
-      <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <View style={styles.centered}>
-          <ActivityIndicator color="#555" />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (state.status === 'no_league') {
+  if (!activeLeagueId) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.centered}>
@@ -89,7 +29,17 @@ export function MixTabScreen() {
     );
   }
 
-  if (state.status === 'no_season') {
+  if (isPending || !data) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={styles.centered}>
+          <ActivityIndicator color="#555" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!data.hasActiveSeason) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.centered}>
@@ -101,7 +51,7 @@ export function MixTabScreen() {
     );
   }
 
-  if (state.status === 'no_active_round') {
+  if (!data.round) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <View style={styles.centered}>
@@ -115,7 +65,7 @@ export function MixTabScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <RoundScreen roundId={state.round.roundId} seasonId={state.round.seasonId} />
+      <RoundScreen roundId={data.round.roundId} seasonId={data.round.seasonId} />
     </SafeAreaView>
   );
 }

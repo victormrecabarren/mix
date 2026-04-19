@@ -98,3 +98,41 @@ export async function getRoundCountForSeason(seasonId: string): Promise<number> 
   if (error) throw postgresToMixError(error);
   return count ?? 0;
 }
+
+export type ActiveRoundLookup = {
+  round: { roundId: string; seasonId: string } | null;
+  hasActiveSeason: boolean;
+};
+
+// Finds the currently-open round for a league — earliest round whose voting
+// deadline hasn't passed, within the league's active season. Returns a
+// discriminated shape so callers can distinguish "no active season" from
+// "active season but all rounds closed" without extra lookups.
+export async function getActiveRoundForLeague(
+  leagueId: string,
+): Promise<ActiveRoundLookup> {
+  const { data: season, error: seasonErr } = await supabase
+    .from("seasons")
+    .select("id")
+    .eq("league_id", leagueId)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (seasonErr) throw postgresToMixError(seasonErr);
+  if (!season) return { round: null, hasActiveSeason: false };
+
+  const { data: round, error: roundErr } = await supabase
+    .from("rounds")
+    .select("id")
+    .eq("season_id", season.id)
+    .gt("voting_deadline_at", new Date().toISOString())
+    .order("round_number", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (roundErr) throw postgresToMixError(roundErr);
+
+  return {
+    round: round ? { roundId: round.id, seasonId: season.id } : null,
+    hasActiveSeason: true,
+  };
+}
