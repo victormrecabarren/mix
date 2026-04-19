@@ -7,3 +7,4 @@ export * from "./seasons";
 export * from "./leagues";
 export * from "./results";
 export * from "./standings";
+export * from "./commissioner";

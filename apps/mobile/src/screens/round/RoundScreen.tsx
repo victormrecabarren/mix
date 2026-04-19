@@ -36,6 +36,7 @@ import { useLeague } from "@/queries/useLeague";
 import { useMyRole } from "@/queries/useMyRole";
 import { useRoundResults } from "@/queries/useRoundResults";
 import { useRoundVoters } from "@/queries/useRoundVoters";
+import { useForceEndRound } from "@/queries/useForceEndRound";
 import { MixError } from "@/services/errors";
 import type { VoteInput, VoteCommentInput } from "@/services/votes";
 import type { SubmissionDraft } from "@/services/submissions";
@@ -1247,7 +1248,9 @@ export function RoundScreen({
     upcoming: "NOT STARTED YET",
   };
 
-  const forceCloseVoting = async () => {
+  const forceEndRoundMutation = useForceEndRound();
+
+  const forceCloseVoting = () => {
     Alert.alert(
       "Force end voting?",
       "This will immediately close the voting window and move the round to results.",
@@ -1257,11 +1260,17 @@ export function RoundScreen({
           text: "End Voting",
           style: "destructive",
           onPress: async () => {
-            await supabase
-              .from("rounds")
-              .update({ voting_deadline_at: new Date().toISOString() })
-              .eq("id", round.id);
-            refetchRound();
+            try {
+              await forceEndRoundMutation.mutateAsync({
+                roundId: round.id,
+                seasonId: round.season_id,
+              });
+            } catch (err) {
+              Alert.alert(
+                "Failed to end voting",
+                err instanceof MixError ? err.message : "Unknown error",
+              );
+            }
           },
         },
       ],

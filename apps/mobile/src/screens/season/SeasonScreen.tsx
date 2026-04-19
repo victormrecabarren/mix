@@ -13,6 +13,10 @@ import { useRoundsForSeason } from '@/queries/useRoundsForSeason';
 import { useLeagueMembers } from '@/queries/useLeagueMembers';
 import { useSeasonStandings } from '@/queries/useSeasonStandings';
 import { useSeasonAggregates } from '@/queries/useSeasonAggregates';
+import { useUpdateSeason } from '@/queries/useUpdateSeason';
+import { useUpdateRound } from '@/queries/useUpdateRound';
+import { useCreateRound } from '@/queries/useCreateRound';
+import { MixError } from '@/services/errors';
 
 type Season = {
   id: string;
@@ -201,21 +205,26 @@ function SeasonEditModal({ season, visible, onClose, onSaved }: {
     pointsPerRound: season.default_points_per_round,
     maxPerTrack: season.default_max_points_per_track,
   });
-  const [saving, setSaving] = useState(false);
+  const updateSeasonMutation = useUpdateSeason();
+  const saving = updateSeasonMutation.isPending;
 
   const save = async () => {
     if (!form.name.trim()) { Alert.alert('Name required'); return; }
-    setSaving(true);
-    const { error } = await supabase.from('seasons').update({
-      name: form.name.trim(),
-      submissions_per_user: form.submissionsPerUser,
-      default_points_per_round: form.pointsPerRound,
-      default_max_points_per_track: form.maxPerTrack,
-    }).eq('id', season.id);
-    setSaving(false);
-    if (error) { Alert.alert('Save failed', error.message); return; }
-    onSaved();
-    onClose();
+    try {
+      await updateSeasonMutation.mutateAsync({
+        seasonId: season.id,
+        patch: {
+          name: form.name.trim(),
+          submissionsPerUser: form.submissionsPerUser,
+          defaultPointsPerRound: form.pointsPerRound,
+          defaultMaxPointsPerTrack: form.maxPerTrack,
+        },
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      Alert.alert('Save failed', err instanceof MixError ? err.message : 'Unknown error');
+    }
   };
 
   return (
@@ -309,7 +318,10 @@ function RoundFormModal({ mode, visible, onClose, onSaved }: {
         }
       : defaultCreateForm(),
   );
-  const [saving, setSaving] = useState(false);
+  const updateRoundMutation = useUpdateRound();
+  const createRoundMutation = useCreateRound();
+  const saving =
+    updateRoundMutation.isPending || createRoundMutation.isPending;
 
   const save = async () => {
     if (!form.prompt.trim()) { Alert.alert('Prompt required'); return; }
@@ -318,29 +330,35 @@ function RoundFormModal({ mode, visible, onClose, onSaved }: {
       Alert.alert('Voting deadline must be after submission deadline'); return;
     }
 
-    setSaving(true);
-    const { error } = mode.kind === 'edit'
-      ? await supabase.from('rounds').update({
-          prompt: form.prompt.trim(),
-          description: form.description.trim(),
-          submission_deadline_at: form.submissionDeadline.toISOString(),
-          voting_deadline_at: form.votingDeadline.toISOString(),
-        }).eq('id', mode.round.id)
-      : await supabase.from('rounds').insert({
-          season_id: mode.seasonId,
-          round_number: mode.nextRoundNumber,
-          prompt: form.prompt.trim(),
-          description: form.description.trim(),
-          submission_deadline_at: form.submissionDeadline.toISOString(),
-          voting_deadline_at: form.votingDeadline.toISOString(),
+    try {
+      if (mode.kind === 'edit') {
+        await updateRoundMutation.mutateAsync({
+          roundId: mode.round.id,
+          patch: {
+            prompt: form.prompt.trim(),
+            description: form.description.trim(),
+            submissionDeadlineAt: form.submissionDeadline,
+            votingDeadlineAt: form.votingDeadline,
+          },
         });
-    setSaving(false);
-    if (error) {
-      Alert.alert(mode.kind === 'edit' ? 'Save failed' : 'Create failed', error.message);
-      return;
+      } else {
+        await createRoundMutation.mutateAsync({
+          seasonId: mode.seasonId,
+          roundNumber: mode.nextRoundNumber,
+          prompt: form.prompt.trim(),
+          description: form.description.trim(),
+          submissionDeadlineAt: form.submissionDeadline,
+          votingDeadlineAt: form.votingDeadline,
+        });
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      Alert.alert(
+        mode.kind === 'edit' ? 'Save failed' : 'Create failed',
+        err instanceof MixError ? err.message : 'Unknown error',
+      );
     }
-    onSaved();
-    onClose();
   };
 
   const title = mode.kind === 'edit'
