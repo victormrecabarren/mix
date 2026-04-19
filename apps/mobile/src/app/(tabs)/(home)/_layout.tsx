@@ -11,7 +11,6 @@ export default function HomeStackLayout() {
         headerTitleStyle: { fontWeight: '700' },
         headerShadowVisible: false,
         contentStyle: { backgroundColor: '#000' },
-        cardStyle: { backgroundColor: '#000' },
         animation: 'default',
         gestureEnabled: true,
       }}

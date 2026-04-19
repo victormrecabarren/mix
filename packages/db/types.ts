@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       comments: {
@@ -700,6 +675,7 @@ export type Database = {
           season_number: number
           season_playlist_ref: string | null
           status: string
+          submissions_per_user: number
         }
         Insert: {
           completed_at?: string | null
@@ -714,6 +690,7 @@ export type Database = {
           season_number: number
           season_playlist_ref?: string | null
           status?: string
+          submissions_per_user?: number
         }
         Update: {
           completed_at?: string | null
@@ -728,6 +705,7 @@ export type Database = {
           season_number?: number
           season_playlist_ref?: string | null
           status?: string
+          submissions_per_user?: number
         }
         Relationships: [
           {
@@ -928,17 +906,53 @@ export type Database = {
       }
     }
     Functions: {
+      assign_playlist_positions: { Args: never; Returns: undefined }
+      close_voting_rounds: { Args: never; Returns: undefined }
+      complete_finished_seasons: { Args: never; Returns: undefined }
       create_league: { Args: { league_name: string }; Returns: string }
       get_join_invite_info: {
         Args: { invite_token: string }
         Returns: {
-          season_id: string
-          season_name: string
           league_id: string
           league_name: string
+          season_id: string
+          season_name: string
+          season_status: string
+        }[]
+      }
+      get_round_results: {
+        Args: { p_round_id: string }
+        Returns: {
+          display_name: string
+          is_void: boolean
+          points_effective: number
+          points_raw: number
+          sort_key: number
+          spotify_track_id: string
+          submission_id: string
+          track_artist: string
+          track_artwork_url: string
+          track_isrc: string
+          track_title: string
+          user_id: string
+        }[]
+      }
+      get_season_standings: {
+        Args: { p_season_id: string }
+        Returns: {
+          display_name: string
+          member_role: string
+          rounds_forfeited: number
+          rounds_played: number
+          total_points: number
+          user_id: string
         }[]
       }
       my_league_ids: { Args: never; Returns: string[] }
+      submit_votes: {
+        Args: { p_round_id: string; p_voter_user_id: string; p_votes: Json }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
@@ -1067,9 +1081,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

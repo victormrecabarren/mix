@@ -31,7 +31,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     if (!session && !inAuthGroup && !inAuthCallback) {
       router.replace("/(auth)");
     } else if (session && inAuthGroup) {
-      router.replace("/(tabs)");
+      router.replace("/(tabs)/(home)");
     }
   }, [session, loading, segments, router]);
 

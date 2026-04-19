@@ -30,7 +30,7 @@ export function JoinScreen({ token }: { token: string }) {
       router.back();
       return;
     }
-    router.replace('/(tabs)');
+    router.replace('/(tabs)/(home)');
   }, [router]);
 
   const handleJoin = async (role: 'participant' | 'spectator') => {
@@ -46,7 +46,7 @@ export function JoinScreen({ token }: { token: string }) {
         role,
       });
       setActiveLeagueId(info.leagueId);
-      router.replace('/(tabs)');
+      router.replace('/(tabs)/(home)');
     } catch (err) {
       Alert.alert('Failed to join', err instanceof MixError ? err.message : 'Unknown error');
     }
@@ -84,7 +84,7 @@ export function JoinScreen({ token }: { token: string }) {
         <TouchableOpacity
           style={styles.btn}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onPress={() => { setActiveLeagueId(info.leagueId); router.replace('/(tabs)'); }}
+          onPress={() => { setActiveLeagueId(info.leagueId); router.replace('/(tabs)/(home)'); }}
         >
           <Text style={styles.btnText}>Go to League</Text>
         </TouchableOpacity>
