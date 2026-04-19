@@ -24,10 +24,16 @@ if (
 }
 import { useRouter, useFocusEffect } from "expo-router";
 import { supabase } from "@/lib/supabase";
+import { useSession } from "@/context/SessionContext";
 import { useRoundSubmissions } from "@/queries/useRoundSubmissions";
 import { useMyVotes } from "@/queries/useMyVotes";
 import { useSubmitVotes } from "@/queries/useSubmitVotes";
 import { useSubmitRoundEntries } from "@/queries/useSubmitRoundEntries";
+import { useRound } from "@/queries/useRound";
+import { usePreviousRound } from "@/queries/usePreviousRound";
+import { useRoundCountForSeason } from "@/queries/useRoundCountForSeason";
+import { useLeague } from "@/queries/useLeague";
+import { useMyRole } from "@/queries/useMyRole";
 import { MixError } from "@/services/errors";
 import type { VoteInput, VoteCommentInput } from "@/services/votes";
 import type { SubmissionDraft } from "@/services/submissions";
@@ -1181,98 +1187,89 @@ export function RoundScreen({
   seasonId?: string;
 }) {
   const router = useRouter();
-  const [round, setRound] = useState<Round | null>(null);
-  const [prevRound, setPrevRound] = useState<SiblingRound | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [isCommissioner, setIsCommissioner] = useState(false);
-  const [myRole, setMyRole] = useState<'participant' | 'spectator'>('participant');
-  const [totalRounds, setTotalRounds] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const { supabaseUserId } = useSession();
+  const userId = supabaseUserId;
 
-  const { data: submissionsData, refetch: refetchSubmissions } = useRoundSubmissions(roundId);
-  const { data: myVotesData, refetch: refetchMyVotes } = useMyVotes(roundId, userId ?? undefined);
+  const { data: round, isLoading: roundLoading, refetch: refetchRound } =
+    useRound(roundId);
+  const roundSeasonId = round?.season_id;
+  const leagueId = round?.seasons?.league_id;
+
+  const { data: prevRound, refetch: refetchPrevRound } = usePreviousRound(
+    roundSeasonId,
+    round?.round_number,
+  );
+  const { data: league, refetch: refetchLeague } = useLeague(leagueId);
+  const { data: myRoleData, refetch: refetchMyRole } = useMyRole(
+    leagueId,
+    userId ?? undefined,
+  );
+  const { data: totalRoundsData, refetch: refetchTotalRounds } =
+    useRoundCountForSeason(roundSeasonId);
+
+  const isCommissioner = !!userId && league?.admin_user_id === userId;
+  const myRole: "participant" | "spectator" =
+    myRoleData === "spectator" ? "spectator" : "participant";
+  const totalRounds = totalRoundsData ?? 0;
+
+  const { data: submissionsData, refetch: refetchSubmissions } =
+    useRoundSubmissions(roundId);
+  const { data: myVotesData, refetch: refetchMyVotes } = useMyVotes(
+    roundId,
+    userId ?? undefined,
+  );
   const submissions: Submission[] = submissionsData ?? [];
   const myVotes = myVotesData ?? {};
 
-  const fetchData = useCallback(async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    setUserId(user.id);
-
-    const { data: roundData } = await supabase
-      .from("rounds")
-      .select(
-        "id, round_number, prompt, description, submission_deadline_at, voting_deadline_at, season_id, seasons(id, name, status, submissions_per_user, default_points_per_round, default_max_points_per_track, league_id)",
-      )
-      .eq("id", roundId)
-      .single();
-
-    if (!roundData) {
-      setLoading(false);
-      return;
-    }
-
-    const season = Array.isArray(roundData.seasons)
-      ? roundData.seasons[0]
-      : roundData.seasons;
-    const r: Round = { ...roundData, seasons: season ?? null };
-    setRound(r);
-
-    // Check commissioner status and league role in parallel
-    if (season?.league_id && user) {
-      const [{ data: leagueData }, { data: memberData }] = await Promise.all([
-        supabase.from("leagues").select("admin_user_id").eq("id", season.league_id).single(),
-        supabase.from("league_members").select("role").eq("league_id", season.league_id).eq("user_id", user.id).single(),
-      ]);
-      setIsCommissioner(leagueData?.admin_user_id === user.id);
-      setMyRole(memberData?.role === 'spectator' ? 'spectator' : 'participant');
-    }
-
-    // Fetch previous round to determine if this one is open
-    if (r.round_number > 1) {
-      const { data: prev } = await supabase
-        .from("rounds")
-        .select("id, round_number, prompt, voting_deadline_at")
-        .eq("season_id", r.season_id)
-        .eq("round_number", r.round_number - 1)
-        .single();
-      setPrevRound(prev ?? null);
-    } else {
-      setPrevRound(null);
-    }
-
-    const { count: roundCount } = await supabase
-      .from("rounds")
-      .select("id", { count: "exact", head: true })
-      .eq("season_id", r.season_id);
-
-    setTotalRounds(roundCount ?? 0);
-    setLoading(false);
-  }, [roundId]);
-
   useFocusEffect(
     useCallback(() => {
-      fetchData();
+      refetchRound();
+      refetchPrevRound();
+      refetchLeague();
+      refetchMyRole();
+      refetchTotalRounds();
       refetchSubmissions();
       refetchMyVotes();
-    }, [fetchData, refetchSubmissions, refetchMyVotes]),
+    }, [
+      refetchRound,
+      refetchPrevRound,
+      refetchLeague,
+      refetchMyRole,
+      refetchTotalRounds,
+      refetchSubmissions,
+      refetchMyVotes,
+    ]),
   );
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchData(), refetchSubmissions(), refetchMyVotes()]);
+    await Promise.all([
+      refetchRound(),
+      refetchPrevRound(),
+      refetchLeague(),
+      refetchMyRole(),
+      refetchTotalRounds(),
+      refetchSubmissions(),
+      refetchMyVotes(),
+    ]);
     setRefreshing(false);
-  }, [fetchData, refetchSubmissions, refetchMyVotes]);
+  }, [
+    refetchRound,
+    refetchPrevRound,
+    refetchLeague,
+    refetchMyRole,
+    refetchTotalRounds,
+    refetchSubmissions,
+    refetchMyVotes,
+  ]);
 
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollToTop = useCallback(() => {
     scrollViewRef.current?.scrollTo({ y: 0, animated: true });
   }, []);
 
-  if (loading) {
+  if (roundLoading) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color="#555" />
@@ -1288,7 +1285,7 @@ export function RoundScreen({
     );
   }
 
-  const phase = getPhase(round, prevRound);
+  const phase = getPhase(round, prevRound ?? null);
   const mySubmissions = submissions.filter((s) => s.user_id === userId);
 
   const phaseColor: Record<Phase, string> = {
@@ -1318,7 +1315,7 @@ export function RoundScreen({
               .from("rounds")
               .update({ voting_deadline_at: new Date().toISOString() })
               .eq("id", round.id);
-            fetchData();
+            refetchRound();
           },
         },
       ],
@@ -1423,7 +1420,7 @@ export function RoundScreen({
           myVotes={myVotes}
           didSubmit={mySubmissions.length > 0}
           isSpectator={myRole === 'spectator'}
-          onVoted={fetchData}
+          onVoted={refetchRound}
           onScrollToTop={scrollToTop}
         />
       )}

@@ -5,76 +5,42 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-
-type League = { id: string; name: string; admin_user_id: string };
-
-type Season = {
-  id: string;
-  name: string;
-  season_number: number;
-  status: string;
-  invite_token: string;
-};
-
-type Member = {
-  user_id: string;
-  role: string;
-  display_name: string;
-};
+import { useSession } from '@/context/SessionContext';
+import { useLeague } from '@/queries/useLeague';
+import { useLeagueMembers } from '@/queries/useLeagueMembers';
+import { useSeasonsForLeague } from '@/queries/useSeasonsForLeague';
 
 export function LeagueScreen({ leagueId }: { leagueId: string }) {
   const router = useRouter();
+  const { supabaseUserId } = useSession();
 
-  const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
-  const [league, setLeague] = useState<League | null>(null);
-  const [seasons, setSeasons] = useState<Season[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: league, isLoading: leagueLoading, refetch: refetchLeague } =
+    useLeague(leagueId);
+  const { data: seasons = [], refetch: refetchSeasons } =
+    useSeasonsForLeague(leagueId);
+  const { data: members = [], refetch: refetchMembers } =
+    useLeagueMembers(leagueId);
 
-  const fetchData = useCallback(async () => {
-    const [{ data: { user } }, { data: leagueData }, { data: seasonsData }, { data: membersData }] =
-      await Promise.all([
-        supabase.auth.getUser(),
-        supabase.from('leagues').select('id, name, admin_user_id').eq('id', leagueId).single(),
-        supabase
-          .from('seasons')
-          .select('id, name, season_number, status, invite_token')
-          .eq('league_id', leagueId)
-          .order('season_number', { ascending: false }),
-        supabase
-          .from('league_members')
-          .select('user_id, role, users(display_name)')
-          .eq('league_id', leagueId)
-          .order('joined_at', { ascending: true }),
-      ]);
-
-    setSupabaseUserId(user?.id ?? null);
-    setLeague(leagueData ?? null);
-    setSeasons(seasonsData ?? []);
-    setMembers(
-      (membersData ?? []).map((m) => ({
-        user_id: m.user_id,
-        role: m.role,
-        display_name:
-          (Array.isArray(m.users) ? m.users[0]?.display_name : (m.users as { display_name: string } | null)?.display_name) ?? 'Unknown',
-      })),
-    );
-    setLoading(false);
-  }, [leagueId]);
-
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  useFocusEffect(
+    useCallback(() => {
+      refetchLeague();
+      refetchSeasons();
+      refetchMembers();
+    }, [refetchLeague, refetchSeasons, refetchMembers]),
+  );
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchData();
+    await Promise.all([refetchLeague(), refetchSeasons(), refetchMembers()]);
     setRefreshing(false);
-  }, [fetchData]);
+  }, [refetchLeague, refetchSeasons, refetchMembers]);
 
   const isCommissioner = league?.admin_user_id === supabaseUserId;
 
   const handleNewSeason = async () => {
-    // FE guard: check if any season still has live rounds
+    // FE guard: check if any season still has live rounds. Leaving this inline
+    // until the creation-flow slice; it's a one-off that doesn't reuse well.
     const { data: liveRounds } = await supabase
       .from('rounds')
       .select('id, seasons!inner(league_id)')
@@ -92,7 +58,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
     router.push('/(tabs)/(home)/create-season' as any);
   };
 
-  if (loading) {
+  if (leagueLoading) {
     return <View style={styles.centered}><ActivityIndicator color="#555" /></View>;
   }
 
@@ -157,7 +123,7 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
                   ]}>{season.status.toUpperCase()}</Text>
                 </View>
               </View>
-              {isCommissioner && season.status === 'active' && (
+              {isCommissioner && season.status === 'active' && season.invite_token && (
                 <TouchableOpacity
                   style={styles.shareBtn}
                   onPress={(e) => {

@@ -7,6 +7,10 @@ import { KeyboardScroll } from '@/components/KeyboardScroll'; // used inside mod
 import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useSession } from '@/context/SessionContext';
+import { useSeason } from '@/queries/useSeason';
+import { useRoundsForSeason } from '@/queries/useRoundsForSeason';
+import { useLeagueMembers } from '@/queries/useLeagueMembers';
 
 type Season = {
   id: string;
@@ -397,57 +401,35 @@ type Tab = 'rounds' | 'standings';
 export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initialTab?: Tab }) {
   const router = useRouter();
 
-  const [userId, setUserId] = useState<string | null>(null);
-  const [season, setSeason] = useState<Season | null>(null);
-  const [rounds, setRounds] = useState<Round[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
+  const { supabaseUserId: userId } = useSession();
+  const { data: season, isLoading: seasonLoading, refetch: refetchSeason } =
+    useSeason(seasonId);
+  const { data: rounds = [], refetch: refetchRounds } =
+    useRoundsForSeason(seasonId);
+  const leagueId = season?.league_id;
+  const { data: members = [], refetch: refetchMembers } =
+    useLeagueMembers(leagueId);
+
   const [standings, setStandings] = useState<StandingRow[]>([]);
   const [submittersByRound, setSubmittersByRound] = useState<Record<string, string[]>>({});
   const [votersByRound, setVotersByRound] = useState<Record<string, string[]>>({});
   const [forfeitsByRound, setForfeitsByRound] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>(initialTab ?? 'rounds');
 
   const [editingSeasonOpen, setEditingSeasonOpen] = useState(false);
   const [editingRound, setEditingRound] = useState<Round | null>(null);
   const [creatingRound, setCreatingRound] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    const [{ data: { user } }, { data: rawSeasonData }] = await Promise.all([
-      supabase.auth.getUser(),
-      supabase
-        .from('seasons')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .select('id, name, season_number, status, league_id, submissions_per_user, default_points_per_round, default_max_points_per_track, leagues(id, name, admin_user_id)' as any)
-        .eq('id', seasonId)
-        .single(),
-    ]);
-
-    setUserId(user?.id ?? null);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const seasonData = rawSeasonData as any as (Season & { leagues: any }) | null;
-
-    if (!seasonData) { setLoading(false); return; }
-
-    const league = Array.isArray(seasonData.leagues) ? seasonData.leagues[0] : seasonData.leagues;
-
-    const [{ data: roundsData }, { data: membersData }, standingsRes] = await Promise.all([
-      supabase
-        .from('rounds')
-        .select('id, round_number, prompt, description, submission_deadline_at, voting_deadline_at')
-        .eq('season_id', seasonId)
-        .order('round_number', { ascending: true }),
-      supabase
-        .from('league_members')
-        .select('user_id, role, users(display_name)')
-        .eq('league_id', seasonData.league_id)
-        .order('joined_at', { ascending: true }),
+  // Standings + per-round aggregates still inline — they'll move to the
+  // results/standings slice.
+  const fetchAggregates = useCallback(async () => {
+    const [standingsRes, roundsForAggRes] = await Promise.all([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase.rpc as any)('get_season_standings', { p_season_id: seasonId }),
+      supabase.from('rounds').select('id').eq('season_id', seasonId),
     ]);
 
-    const roundIds = (roundsData ?? []).map((r) => r.id);
+    const roundIds = (roundsForAggRes.data ?? []).map((r: { id: string }) => r.id);
     const [
       { data: subsData },
       { data: votesData },
@@ -460,41 +442,23 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
         ])
       : [{ data: [] }, { data: [] }, { data: [] }];
 
-    // Build map: roundId → unique user_ids who submitted
     const byRound: Record<string, string[]> = {};
     for (const sub of (subsData ?? [])) {
       if (!byRound[sub.round_id]) byRound[sub.round_id] = [];
       if (!byRound[sub.round_id].includes(sub.user_id)) byRound[sub.round_id].push(sub.user_id);
     }
-
-    // Build map: roundId → unique voter_user_ids
     const votersBy: Record<string, string[]> = {};
     for (const v of (votesData ?? [])) {
       if (!votersBy[v.round_id]) votersBy[v.round_id] = [];
       if (!votersBy[v.round_id].includes(v.voter_user_id)) votersBy[v.round_id].push(v.voter_user_id);
     }
-
-    // Build map: roundId → forfeit count (participants flagged is_void)
     const forfeitsBy: Record<string, number> = {};
     for (const p of (participantsData ?? [])) {
       if (p.is_void) forfeitsBy[p.round_id] = (forfeitsBy[p.round_id] ?? 0) + 1;
     }
-
-    setSeason({ ...seasonData, leagues: league ?? null });
-    setRounds(roundsData ?? []);
     setSubmittersByRound(byRound);
     setVotersByRound(votersBy);
     setForfeitsByRound(forfeitsBy);
-    setMembers(
-      (membersData ?? []).map((m) => ({
-        user_id: m.user_id,
-        role: m.role,
-        display_name:
-          (Array.isArray(m.users)
-            ? m.users[0]?.display_name
-            : (m.users as { display_name: string } | null)?.display_name) ?? 'Unknown',
-      })),
-    );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sr = standingsRes as any;
@@ -504,18 +468,39 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
     } else {
       setStandings(Array.isArray(sr.data) ? sr.data : []);
     }
-
-    setLoading(false);
   }, [seasonId]);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  useFocusEffect(
+    useCallback(() => {
+      refetchSeason();
+      refetchRounds();
+      refetchMembers();
+      fetchAggregates();
+    }, [refetchSeason, refetchRounds, refetchMembers, fetchAggregates]),
+  );
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchData();
+    await Promise.all([
+      refetchSeason(),
+      refetchRounds(),
+      refetchMembers(),
+      fetchAggregates(),
+    ]);
     setRefreshing(false);
-  }, [fetchData]);
+  }, [refetchSeason, refetchRounds, refetchMembers, fetchAggregates]);
+
+  const loading = seasonLoading;
+
+  const refetchAll = useCallback(async () => {
+    await Promise.all([
+      refetchSeason(),
+      refetchRounds(),
+      refetchMembers(),
+      fetchAggregates(),
+    ]);
+  }, [refetchSeason, refetchRounds, refetchMembers, fetchAggregates]);
 
   const sortedByRoundNumber = useMemo(
     () => [...rounds].sort((a, b) => a.round_number - b.round_number),
@@ -793,7 +778,7 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
           season={season}
           visible={editingSeasonOpen}
           onClose={() => setEditingSeasonOpen(false)}
-          onSaved={fetchData}
+          onSaved={refetchAll}
         />
       )}
 
@@ -803,7 +788,7 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
           mode={{ kind: 'edit', round: editingRound }}
           visible={editingRound !== null}
           onClose={() => setEditingRound(null)}
-          onSaved={fetchData}
+          onSaved={refetchAll}
         />
       )}
 
@@ -817,7 +802,7 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
           }}
           visible={creatingRound}
           onClose={() => setCreatingRound(false)}
-          onSaved={fetchData}
+          onSaved={refetchAll}
         />
       )}
     </View>
