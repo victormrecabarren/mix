@@ -9,3 +9,5 @@ export * from "./results";
 export * from "./standings";
 export * from "./commissioner";
 export * from "./invites";
+export * from "./auth";
+export * from "./users";
