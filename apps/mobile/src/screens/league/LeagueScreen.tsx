@@ -1,19 +1,20 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Share, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { GlassCard } from '@/components/nocturne/GlassCard';
 import { Eyebrow } from '@/components/nocturne/Eyebrow';
 import { Chip } from '@/components/nocturne/Chip';
 import { nocturne } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
-
-type League = { id: string; name: string; admin_user_id: string };
+import { useLeague, useLeagueMembers } from '@/queries/league';
+import { useSeasonsByLeague, useRounds, seasonKeys } from '@/queries/season';
 
 type Season = {
   id: string;
@@ -21,12 +22,6 @@ type Season = {
   season_number: number;
   status: string;
   invite_token: string;
-};
-
-type Member = {
-  user_id: string;
-  role: string;
-  display_name: string;
 };
 
 type Round = {
@@ -104,70 +99,58 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
+  const queryClient = useQueryClient();
   const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
-  const [league, setLeague] = useState<League | null>(null);
-  const [seasons, setSeasons] = useState<Season[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [activeRounds, setActiveRounds] = useState<Round[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
-    const [{ data: { user } }, { data: leagueData }, { data: seasonsData }, { data: membersData }] =
-      await Promise.all([
-        supabase.auth.getUser(),
-        supabase.from('leagues').select('id, name, admin_user_id').eq('id', leagueId).single(),
-        supabase
-          .from('seasons')
-          .select('id, name, season_number, status, invite_token')
-          .eq('league_id', leagueId)
-          .order('season_number', { ascending: false }),
-        supabase
-          .from('league_members')
-          .select('user_id, role, users(display_name)')
-          .eq('league_id', leagueId)
-          .order('joined_at', { ascending: true }),
-      ]);
+  // Get the current user's ID once
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setSupabaseUserId(user?.id ?? null);
+    });
+  }, []);
 
-    setSupabaseUserId(user?.id ?? null);
-    setLeague(leagueData ?? null);
-    setSeasons(seasonsData ?? []);
-    setMembers(
-      (membersData ?? []).map((m) => ({
-        user_id: m.user_id,
-        role: m.role,
-        display_name:
-          (Array.isArray(m.users) ? m.users[0]?.display_name : (m.users as { display_name: string } | null)?.display_name) ?? 'Unknown',
-      })),
-    );
+  // Primary queries (cached, dedupe'd, stale-while-revalidate)
+  const { data: league, isLoading: leagueLoading, refetch: refetchLeague } = useLeague(leagueId);
+  const { data: seasons = [], isLoading: seasonsLoading, refetch: refetchSeasons } = useSeasonsByLeague(leagueId);
+  const { data: members = [], isLoading: membersLoading, refetch: refetchMembers } = useLeagueMembers(leagueId);
 
-    // Fetch rounds for the active season (for progress bar + current round info)
-    const active = (seasonsData ?? []).find((s) => s.status === 'active');
-    if (active) {
-      const { data: roundsData } = await supabase
-        .from('rounds')
-        .select('id, round_number, submission_deadline_at, voting_deadline_at')
-        .eq('season_id', active.id)
-        .order('round_number', { ascending: true });
-      setActiveRounds(roundsData ?? []);
-    } else {
-      setActiveRounds([]);
-    }
+  const activeSeason = seasons.find((s) => s.status === 'active');
+  const pastSeasons = seasons.filter((s) => s.status !== 'active');
 
-    setLoading(false);
-  }, [leagueId]);
+  // Rounds for the active season (for progress bar + current round info)
+  const { data: activeRounds = [], refetch: refetchRounds } = useRounds(activeSeason?.id);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  const loading = leagueLoading || seasonsLoading || membersLoading;
+
+  // Seed season detail cache with list data so SeasonScreen can render instantly on click
+  useEffect(() => {
+    seasons.forEach((s) => {
+      const cached = queryClient.getQueryData(seasonKeys.byId(s.id));
+      if (!cached) {
+        // Only seed if nothing already cached — full detail query will fill in the rest
+        queryClient.setQueryData(seasonKeys.byId(s.id), {
+          ...s,
+          league_id: leagueId,
+          leagues: league
+            ? { id: league.id, name: league.name, admin_user_id: league.admin_user_id }
+            : null,
+          // Defaults for fields we don't have in the list — SeasonScreen's detailed useQuery will refresh these
+          submissions_per_user: 1,
+          default_points_per_round: 10,
+          default_max_points_per_track: 5,
+        });
+      }
+    });
+  }, [seasons, league, leagueId, queryClient]);
 
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchData();
+    await Promise.all([refetchLeague(), refetchSeasons(), refetchMembers(), refetchRounds()]);
     setRefreshing(false);
-  }, [fetchData]);
+  }, [refetchLeague, refetchSeasons, refetchMembers, refetchRounds]);
 
   const isCommissioner = league?.admin_user_id === supabaseUserId;
-  const activeSeason = seasons.find((s) => s.status === 'active');
-  const pastSeasons = seasons.filter((s) => s.status !== 'active');
 
   // Compute round statuses + current active round info
   const roundStatuses: RoundStatus[] = activeRounds.map((r, i) =>
@@ -264,7 +247,16 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
         <TouchableOpacity
           activeOpacity={0.92}
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onPress={() => router.push({ pathname: '/(tabs)/(home)/season/[id]' as any, params: { id: activeSeason.id } })}
+          onPress={() => router.push({
+            pathname: '/(tabs)/(home)/season/[id]' as any,
+            params: {
+              id: activeSeason.id,
+              initialName: activeSeason.name,
+              initialNumber: String(activeSeason.season_number),
+              initialStatus: activeSeason.status,
+              initialLeagueName: league.name,
+            },
+          })}
         >
           <GlassCard style={styles.heroCard}>
             <View style={styles.heroContent}>
@@ -325,7 +317,16 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
                 style={styles.heroCta}
                 activeOpacity={0.8}
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                onPress={() => router.push({ pathname: '/(tabs)/(home)/season/[id]' as any, params: { id: activeSeason.id } })}
+                onPress={() => router.push({
+            pathname: '/(tabs)/(home)/season/[id]' as any,
+            params: {
+              id: activeSeason.id,
+              initialName: activeSeason.name,
+              initialNumber: String(activeSeason.season_number),
+              initialStatus: activeSeason.status,
+              initialLeagueName: league.name,
+            },
+          })}
               >
                 <Text style={styles.heroCtaText}>Open season →</Text>
               </TouchableOpacity>
@@ -369,7 +370,16 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
               key={season.id}
               activeOpacity={0.7}
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              onPress={() => router.push({ pathname: '/(tabs)/(home)/season/[id]' as any, params: { id: season.id } })}
+              onPress={() => router.push({
+                pathname: '/(tabs)/(home)/season/[id]' as any,
+                params: {
+                  id: season.id,
+                  initialName: season.name,
+                  initialNumber: String(season.season_number),
+                  initialStatus: season.status,
+                  initialLeagueName: league.name,
+                },
+              })}
             >
               <GlassCard style={styles.pastCard}>
                 <View style={styles.pastCardInner}>

@@ -4,9 +4,16 @@ import { SeasonScreen } from '@/screens/season/SeasonScreen';
 import { colors } from '@/theme/colors';
 
 export default function SeasonPage() {
-  const { id, initialTab } = useLocalSearchParams<{ id: string; initialTab: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    initialTab?: string;
+    initialName?: string;
+    initialNumber?: string;
+    initialStatus?: string;
+    initialLeagueName?: string;
+  }>();
 
-  if (!id) {
+  if (!params.id) {
     return (
       <View style={styles.centered}>
         <Text style={styles.error}>Missing season ID.</Text>
@@ -14,7 +21,16 @@ export default function SeasonPage() {
     );
   }
 
-  return <SeasonScreen seasonId={id} initialTab={initialTab === 'standings' ? 'standings' : undefined} />;
+  return (
+    <SeasonScreen
+      seasonId={params.id}
+      initialTab={params.initialTab === 'standings' ? 'standings' : undefined}
+      initialName={params.initialName}
+      initialNumber={params.initialNumber ? Number(params.initialNumber) : undefined}
+      initialStatus={params.initialStatus}
+      initialLeagueName={params.initialLeagueName}
+    />
+  );
 }
 
 const styles = StyleSheet.create({

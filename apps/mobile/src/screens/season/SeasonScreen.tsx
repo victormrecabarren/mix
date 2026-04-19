@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
   Modal, TextInput, Alert,
@@ -6,13 +6,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardScroll } from '@/components/KeyboardScroll'; // used inside modals only
 import RNDateTimePicker from '@react-native-community/datetimepicker';
-import { Stack, useRouter, useFocusEffect } from 'expo-router';
+import { Stack, useRouter, useFocusEffect, useNavigation } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { colors, nocturne } from '@/theme/colors';
 import { fonts } from '@/theme/fonts';
 import { GlassCard } from '@/components/nocturne/GlassCard';
 import { Eyebrow } from '@/components/nocturne/Eyebrow';
 import { Chip } from '@/components/nocturne/Chip';
+import { useSeason as useSeasonQuery, useRounds as useRoundsQuery } from '@/queries/season';
 
 function formatTimeLeftShort(iso: string): string {
   const ms = new Date(iso).getTime() - Date.now();
@@ -412,61 +413,65 @@ function RoundFormModal({ mode, visible, onClose, onSaved }: {
 
 type Tab = 'rounds' | 'standings';
 
-export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initialTab?: Tab }) {
+export function SeasonScreen({
+  seasonId,
+  initialTab,
+  initialName,
+  initialNumber,
+  initialStatus,
+  initialLeagueName,
+}: {
+  seasonId: string;
+  initialTab?: Tab;
+  initialName?: string;
+  initialNumber?: number;
+  initialStatus?: string;
+  initialLeagueName?: string;
+}) {
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
+  // Primary queries — hit react-query cache instantly if pre-seeded by LeagueScreen
+  const { data: seasonFromQuery } = useSeasonQuery(seasonId);
+  const { data: roundsFromQuery = [] } = useRoundsQuery(seasonId);
+
   const [userId, setUserId] = useState<string | null>(null);
-  const [season, setSeason] = useState<Season | null>(null);
-  const [rounds, setRounds] = useState<Round[]>([]);
+  // `season` is derived from query; kept as a local variable for backward compat with existing render code
+  const season = (seasonFromQuery as Season | null | undefined) ?? null;
+  const rounds = roundsFromQuery as Round[];
   const [members, setMembers] = useState<Member[]>([]);
   const [standings, setStandings] = useState<StandingRow[]>([]);
   const [submittersByRound, setSubmittersByRound] = useState<Record<string, string[]>>({});
   const [votersByRound, setVotersByRound] = useState<Record<string, string[]>>({});
   const [forfeitsByRound, setForfeitsByRound] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!season);
   const [tab, setTab] = useState<Tab>(initialTab ?? 'rounds');
 
   const [editingSeasonOpen, setEditingSeasonOpen] = useState(false);
   const [editingRound, setEditingRound] = useState<Round | null>(null);
   const [creatingRound, setCreatingRound] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    const [{ data: { user } }, { data: rawSeasonData }] = await Promise.all([
-      supabase.auth.getUser(),
-      supabase
-        .from('seasons')
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .select('id, name, season_number, status, league_id, submissions_per_user, default_points_per_round, default_max_points_per_track, leagues(id, name, admin_user_id)' as any)
-        .eq('id', seasonId)
-        .single(),
-    ]);
-
+  // Fetches the "extra" data not covered by primary useSeason/useRounds queries:
+  // members, standings, submitters/voters/forfeits maps. This runs independently
+  // so the header/rounds list renders immediately from cache.
+  const fetchExtraData = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
     setUserId(user?.id ?? null);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const seasonData = rawSeasonData as any as (Season & { leagues: any }) | null;
+    if (!season) return;
 
-    if (!seasonData) { setLoading(false); return; }
-
-    const league = Array.isArray(seasonData.leagues) ? seasonData.leagues[0] : seasonData.leagues;
-
-    const [{ data: roundsData }, { data: membersData }, standingsRes] = await Promise.all([
-      supabase
-        .from('rounds')
-        .select('id, round_number, prompt, description, submission_deadline_at, voting_deadline_at')
-        .eq('season_id', seasonId)
-        .order('round_number', { ascending: true }),
+    const [{ data: membersData }, standingsRes] = await Promise.all([
       supabase
         .from('league_members')
         .select('user_id, role, users(display_name)')
-        .eq('league_id', seasonData.league_id)
+        .eq('league_id', season.league_id)
         .order('joined_at', { ascending: true }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase.rpc as any)('get_season_standings', { p_season_id: seasonId }),
     ]);
 
-    const roundIds = (roundsData ?? []).map((r) => r.id);
+    const roundIds = rounds.map((r) => r.id);
     const [
       { data: subsData },
       { data: votesData },
@@ -479,28 +484,23 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
         ])
       : [{ data: [] }, { data: [] }, { data: [] }];
 
-    // Build map: roundId → unique user_ids who submitted
     const byRound: Record<string, string[]> = {};
     for (const sub of (subsData ?? [])) {
       if (!byRound[sub.round_id]) byRound[sub.round_id] = [];
       if (!byRound[sub.round_id].includes(sub.user_id)) byRound[sub.round_id].push(sub.user_id);
     }
 
-    // Build map: roundId → unique voter_user_ids
     const votersBy: Record<string, string[]> = {};
     for (const v of (votesData ?? [])) {
       if (!votersBy[v.round_id]) votersBy[v.round_id] = [];
       if (!votersBy[v.round_id].includes(v.voter_user_id)) votersBy[v.round_id].push(v.voter_user_id);
     }
 
-    // Build map: roundId → forfeit count (participants flagged is_void)
     const forfeitsBy: Record<string, number> = {};
     for (const p of (participantsData ?? [])) {
       if (p.is_void) forfeitsBy[p.round_id] = (forfeitsBy[p.round_id] ?? 0) + 1;
     }
 
-    setSeason({ ...seasonData, leagues: league ?? null });
-    setRounds(roundsData ?? []);
     setSubmittersByRound(byRound);
     setVotersByRound(votersBy);
     setForfeitsByRound(forfeitsBy);
@@ -525,7 +525,16 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
     }
 
     setLoading(false);
-  }, [seasonId]);
+  }, [seasonId, season, rounds]);
+
+  // Mark loading=false once we have the minimum required data for render
+  useEffect(() => {
+    if (season) setLoading(false);
+  }, [season]);
+
+  // Alias for backward compatibility — any code calling fetchData (e.g., modal
+  // onSaved callbacks) now triggers the extra-data refetch + query invalidation
+  const fetchData = fetchExtraData;
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
@@ -576,23 +585,34 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
 
   const isCommissioner = season?.leagues?.admin_user_id === userId;
 
-  if (loading) {
+  // If we have NO initial data AND are still loading AND have nothing fetched yet,
+  // show a tiny transparent spinner. Otherwise render the UI with whatever we have
+  // (from params if fetch hasn't completed). This keeps the transition smooth:
+  // the header renders instantly from route params and content fills in as it loads.
+  if (loading && !season && !initialName) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator color={colors.textMuted} />
+      <View style={nocStyles.transparentCentered}>
+        <ActivityIndicator color={nocturne.blue} />
       </View>
     );
   }
 
-  if (!season) {
+  if (!loading && !season) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.mutedText}>Season not found.</Text>
+      <View style={nocStyles.transparentCentered}>
+        <Text style={{ color: nocturne.inkMuted, fontFamily: fonts.sans, fontSize: 15 }}>
+          Season not found.
+        </Text>
       </View>
     );
   }
 
-  const league = season.leagues;
+  // Use params as fallback for header values while season data loads
+  const displayName = season?.name ?? initialName ?? '';
+  const displayNumber = season?.season_number ?? initialNumber ?? 0;
+  const displayStatus = season?.status ?? initialStatus ?? 'active';
+
+  const league = season?.leagues ?? null;
 
   // Nocturne-style active round card — glass, chip, round number, prompt, time left
   const renderActiveRoundCard = (round: Round) => {
@@ -726,24 +746,27 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
   const totalRounds = roundsAsc.length;
 
   const statusChipColor =
-    season.status === 'active' ? nocturne.gold : season.status === 'completed' ? nocturne.blueLight : nocturne.inkMuted;
+    displayStatus === 'active' ? nocturne.gold : displayStatus === 'completed' ? nocturne.blueLight : nocturne.inkMuted;
   const statusChipLabel =
-    season.status === 'active' ? 'IN PROGRESS' : season.status === 'completed' ? 'COMPLETED' : season.status.toUpperCase();
+    displayStatus === 'active' ? 'IN PROGRESS' : displayStatus === 'completed' ? 'COMPLETED' : displayStatus.toUpperCase();
+  const displayLeagueName = league?.name ?? initialLeagueName ?? '';
+
+  // Set the header title synchronously before paint — avoids the momentary
+  // "Season" default flashing before the league name appears.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: displayLeagueName.toUpperCase() || 'SEASON',
+      headerTitleStyle: {
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 12,
+        color: nocturne.inkMuted,
+      },
+      headerTitleAlign: 'center',
+    });
+  }, [navigation, displayLeagueName]);
 
   return (
     <View style={nocStyles.screenRoot}>
-      {/* Stack header — centered league name in uppercase tracking */}
-      <Stack.Screen
-        options={{
-          title: league?.name?.toUpperCase() ?? 'SEASON',
-          headerTitleStyle: {
-            fontFamily: fonts.sansSemiBold,
-            fontSize: 12,
-            color: nocturne.inkMuted,
-          },
-          headerTitleAlign: 'center',
-        }}
-      />
       <ScrollView
         contentContainerStyle={[nocStyles.root, { paddingTop: insets.top + 56 }]}
         style={{ flex: 1 }}
@@ -752,16 +775,18 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
       >
         {/* ── Season header ── */}
         <Eyebrow>
-          {`Season · ${completedCountAsc}/${totalRounds || '-'} rounds`}
+          {totalRounds > 0
+            ? `Season · ${completedCountAsc}/${totalRounds} rounds`
+            : `Season ${displayNumber || ''}`}
         </Eyebrow>
         <Text style={nocStyles.pageTitle}>
-          {season.name}
+          {displayName}
           <Text style={{ color: nocturne.blueLight }}>.</Text>
         </Text>
         <Text style={[nocStyles.statusLabel, { color: statusChipColor }]}>
           {statusChipLabel}
         </Text>
-        {isCommissioner && season.status !== 'completed' && (
+        {isCommissioner && displayStatus !== 'completed' && (
           <TouchableOpacity onPress={() => setEditingSeasonOpen(true)}>
             <Text style={nocStyles.editBtn}>Edit Season</Text>
           </TouchableOpacity>
@@ -815,7 +840,7 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
               </>
             )}
 
-            {isCommissioner && season.status === 'active' && (
+            {isCommissioner && displayStatus === 'active' && (
               <TouchableOpacity
                 style={nocStyles.addRoundBtn}
                 onPress={() => setCreatingRound(true)}
@@ -893,7 +918,7 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
       </ScrollView>
 
       {/* ── Season edit modal ── */}
-      {isCommissioner && (
+      {isCommissioner && season && (
         <SeasonEditModal
           season={season}
           visible={editingSeasonOpen}
@@ -913,7 +938,7 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
       )}
 
       {/* ── Round create modal ── */}
-      {isCommissioner && creatingRound && (
+      {isCommissioner && creatingRound && season && (
         <RoundFormModal
           mode={{
             kind: 'create',
@@ -932,6 +957,12 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
 // Nocturne-scoped styles for the redesigned Season screen
 const nocStyles = StyleSheet.create({
   screenRoot: { flex: 1, backgroundColor: 'transparent' },
+  transparentCentered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
   root: {
     padding: 22,
     paddingBottom: 140,

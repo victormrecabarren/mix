@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Stack, useRouter, useSegments } from "expo-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import {
   Fraunces_700Bold,
@@ -20,6 +22,20 @@ import { SpotifyPlayerProvider, useSpotifyPlayer } from "@/playback/SpotifyWebPl
 import { SoundCloudPlayerProvider } from "@/playback/SoundCloudWebPlayer";
 import { PlaybackProvider } from "@/playback/PlaybackContext";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
+
+// Single app-wide query client. Defaults: 30s staleTime (briefly considered fresh
+// on re-render), 5min gcTime (cache retained across unmounts). Refetch on window
+// focus is off since RN doesn't have a "window focus" the way web does.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30 * 1000,
+      gcTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { session, loading } = useSession();
@@ -72,6 +88,8 @@ export default function RootLayout() {
   }
 
   return (
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#000" }}>
+    <QueryClientProvider client={queryClient}>
     <SessionProvider>
       <SpotifyPlayerProvider>
         <SoundCloudPlayerProvider>
@@ -90,5 +108,7 @@ export default function RootLayout() {
         </SoundCloudPlayerProvider>
       </SpotifyPlayerProvider>
     </SessionProvider>
+    </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

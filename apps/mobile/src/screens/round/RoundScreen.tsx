@@ -1355,7 +1355,7 @@ export function RoundScreen({
 
   if (loading) {
     return (
-      <View style={styles.centered}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' }}>
         <ActivityIndicator color={colors.textMuted} />
       </View>
     );
@@ -1363,7 +1363,7 @@ export function RoundScreen({
 
   if (!round) {
     return (
-      <View style={styles.centered}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' }}>
         <Text style={styles.mutedHint}>Round not found.</Text>
       </View>
     );
