@@ -37,4 +37,25 @@ export const invalidations = {
       qc.invalidateQueries({ queryKey: queryKeys.season(ctx.seasonId) });
     }
   },
+  createLeague: (qc: QueryClient, ctx: { userId?: string }) => {
+    if (ctx.userId) {
+      qc.invalidateQueries({ queryKey: queryKeys.userFirstLeague(ctx.userId) });
+    }
+  },
+  createSeason: (qc: QueryClient, ctx: { leagueId: string }) => {
+    qc.invalidateQueries({ queryKey: queryKeys.leagueSeasons(ctx.leagueId) });
+    qc.invalidateQueries({
+      queryKey: queryKeys.leagueActiveSeason(ctx.leagueId),
+    });
+  },
+  joinLeague: (
+    qc: QueryClient,
+    ctx: { leagueId: string; userId: string },
+  ) => {
+    qc.invalidateQueries({ queryKey: queryKeys.leagueMembers(ctx.leagueId) });
+    qc.invalidateQueries({
+      queryKey: queryKeys.myRole(ctx.leagueId, ctx.userId),
+    });
+    qc.invalidateQueries({ queryKey: queryKeys.userFirstLeague(ctx.userId) });
+  },
 };

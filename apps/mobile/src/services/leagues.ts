@@ -80,3 +80,50 @@ export async function getFirstLeagueIdForUser(
   if (error) throw postgresToMixError(error);
   return data?.league_id ?? null;
 }
+
+export type MasterPlaylistMode = "fresh" | "cloned" | "linked";
+
+export type CreateLeagueArgs = {
+  name: string;
+  masterPlaylistMode?: MasterPlaylistMode;
+  masterPlaylistRef?: string | null;
+};
+
+// Creates a league via the create_league RPC (atomic: inserts league +
+// commissioner membership). Optionally patches playlist mode/ref. Returns
+// the new league id.
+export async function createLeague(args: CreateLeagueArgs): Promise<string> {
+  const { data: leagueId, error } = await supabase.rpc("create_league", {
+    league_name: args.name,
+  });
+  if (error) throw postgresToMixError(error);
+  if (!leagueId) throw new Error("create_league returned no id");
+
+  if (args.masterPlaylistMode && args.masterPlaylistMode !== "fresh") {
+    const { error: updateErr } = await supabase
+      .from("leagues")
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .update({
+        master_playlist_mode: args.masterPlaylistMode,
+        master_playlist_ref: args.masterPlaylistRef ?? null,
+      } as any)
+      .eq("id", leagueId as string);
+    if (updateErr) throw postgresToMixError(updateErr);
+  }
+
+  return leagueId as string;
+}
+
+export async function isLeagueMember(
+  leagueId: string,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("league_members")
+    .select("user_id")
+    .eq("league_id", leagueId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw postgresToMixError(error);
+  return data !== null;
+}

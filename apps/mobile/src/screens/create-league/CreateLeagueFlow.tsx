@@ -5,8 +5,10 @@ import {
 } from 'react-native';
 import { KeyboardScroll } from '@/components/KeyboardScroll';
 import { useRouter } from 'expo-router';
-import { supabase } from '@/lib/supabase';
 import { useLeague } from '@/context/LeagueContext';
+import { useSession } from '@/context/SessionContext';
+import { useCreateLeague } from '@/queries/useCreateLeague';
+import { MixError } from '@/services/errors';
 
 type PlaylistMode = 'fresh' | 'cloned' | 'linked';
 
@@ -29,8 +31,10 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 export function CreateLeagueFlow() {
   const router = useRouter();
   const { setActiveLeagueId } = useLeague();
+  const { supabaseUserId } = useSession();
   const [form, setForm] = useState<LeagueForm>({ name: '', playlistMode: 'fresh', playlistRef: '' });
-  const [submitting, setSubmitting] = useState(false);
+  const createLeagueMutation = useCreateLeague();
+  const submitting = createLeagueMutation.isPending;
 
   const MODES: { value: PlaylistMode; label: string; desc: string }[] = [
     { value: 'fresh', label: 'Fresh', desc: 'Start a new playlist each season' },
@@ -40,25 +44,17 @@ export function CreateLeagueFlow() {
 
   const handleCreate = async () => {
     if (!form.name.trim()) return;
-    setSubmitting(true);
     try {
-      const { data: leagueId, error } = await supabase.rpc('create_league', { league_name: form.name.trim() });
-      if (error) throw new Error(error.message);
-      if (!leagueId) throw new Error('No league ID returned');
-
-      if (form.playlistMode !== 'fresh') {
-        await supabase.from('leagues').update({
-          master_playlist_mode: form.playlistMode,
-          master_playlist_ref: form.playlistRef || null,
-        }).eq('id', leagueId as string);
-      }
-
-      setActiveLeagueId(leagueId as string);
+      const leagueId = await createLeagueMutation.mutateAsync({
+        name: form.name.trim(),
+        masterPlaylistMode: form.playlistMode,
+        masterPlaylistRef: form.playlistRef || null,
+        userId: supabaseUserId ?? undefined,
+      });
+      setActiveLeagueId(leagueId);
       router.back();
     } catch (err) {
-      Alert.alert('Failed', err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setSubmitting(false);
+      Alert.alert('Failed', err instanceof MixError ? err.message : 'Unknown error');
     }
   };
 

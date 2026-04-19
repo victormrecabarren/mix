@@ -1,33 +1,29 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { supabase } from '@/lib/supabase';
 import { useLeague } from '@/context/LeagueContext';
+import { useSession } from '@/context/SessionContext';
+import { useJoinInviteInfo } from '@/queries/useJoinInviteInfo';
+import { useIsLeagueMember } from '@/queries/useIsLeagueMember';
+import { useJoinLeague } from '@/queries/useJoinLeague';
+import { MixError, NotAuthenticatedError } from '@/services/errors';
 import { SwipeSheet } from '@/components/SwipeSheet';
-
-type JoinInfo = {
-  seasonId: string;
-  seasonName: string;
-  seasonStatus: string;
-  leagueId: string;
-  leagueName: string;
-  alreadyMember: boolean;
-};
-
-type JoinInviteLookup = {
-  season_id: string;
-  season_name: string;
-  season_status: string;
-  league_id: string;
-  league_name: string;
-};
 
 export function JoinScreen({ token }: { token: string }) {
   const router = useRouter();
   const { setActiveLeagueId } = useLeague();
-  const [info, setInfo] = useState<JoinInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [joining, setJoining] = useState(false);
+  const { supabaseUserId } = useSession();
+
+  const inviteQuery = useJoinInviteInfo(token);
+  const info = inviteQuery.data;
+  const memberQuery = useIsLeagueMember(
+    info?.leagueId,
+    supabaseUserId ?? undefined,
+  );
+  const alreadyMember = memberQuery.data === true;
+  const joinMutation = useJoinLeague();
+  const loading = inviteQuery.isPending || (!!info && memberQuery.isPending);
+  const joining = joinMutation.isPending;
 
   const handleClose = useCallback(() => {
     if (router.canGoBack()) {
@@ -37,63 +33,22 @@ export function JoinScreen({ token }: { token: string }) {
     router.replace('/(tabs)');
   }, [router]);
 
-  const fetchInfo = useCallback(async () => {
-    const { data, error } = await supabase
-      .rpc('get_join_invite_info' as never, { invite_token: token } as never)
-      .single();
-    const inviteInfo = data as JoinInviteLookup | null;
-
-    if (error || !inviteInfo) {
-      setLoading(false);
-      return;
-    }
-
-    const { data: { user } } = await supabase.auth.getUser();
-    let alreadyMember = false;
-    if (user) {
-      const { data: membership } = await supabase
-        .from('league_members')
-        .select('user_id')
-        .eq('league_id', inviteInfo.league_id)
-        .eq('user_id', user.id)
-        .maybeSingle();
-      alreadyMember = membership !== null;
-    }
-
-    setInfo({
-      seasonId: inviteInfo.season_id,
-      seasonName: inviteInfo.season_name,
-      seasonStatus: inviteInfo.season_status,
-      leagueId: inviteInfo.league_id,
-      leagueName: inviteInfo.league_name,
-      alreadyMember,
-    });
-    setLoading(false);
-  }, [token]);
-
-  useEffect(() => {
-    fetchInfo();
-  }, [fetchInfo]);
-
   const handleJoin = async (role: 'participant' | 'spectator') => {
     if (!info) return;
-    setJoining(true);
+    if (!supabaseUserId) {
+      Alert.alert('Failed to join', new NotAuthenticatedError().message);
+      return;
+    }
     try {
-      const { data: { user }, error: userErr } = await supabase.auth.getUser();
-      if (userErr || !user) throw new Error('Not authenticated');
-
-      const { error } = await supabase
-        .from('league_members')
-        .insert({ league_id: info.leagueId, user_id: user.id, role });
-
-      if (error) throw new Error(error.message);
-
+      await joinMutation.mutateAsync({
+        leagueId: info.leagueId,
+        userId: supabaseUserId,
+        role,
+      });
       setActiveLeagueId(info.leagueId);
       router.replace('/(tabs)');
     } catch (err) {
-      Alert.alert('Failed to join', err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setJoining(false);
+      Alert.alert('Failed to join', err instanceof MixError ? err.message : 'Unknown error');
     }
   };
 
@@ -121,7 +76,7 @@ export function JoinScreen({ token }: { token: string }) {
         </Text>
       </View>
     );
-  } else if (info.alreadyMember) {
+  } else if (alreadyMember) {
     content = (
       <View style={styles.stateBlock}>
         <Text style={styles.errorTitle}>Already a member</Text>
