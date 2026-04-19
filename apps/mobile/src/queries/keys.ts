@@ -12,6 +12,8 @@ export const queryKeys = {
     ["round", roundId, "myVotes", userId] as const,
   previousRound: (seasonId: string, roundNumber: number) =>
     ["season", seasonId, "prevRound", roundNumber] as const,
+  roundResults: (roundId: string) => ["round", roundId, "results"] as const,
+  roundVoters: (roundId: string) => ["round", roundId, "voters"] as const,
 
   // Season
   season: (seasonId: string) => ["season", seasonId] as const,
@@ -19,6 +21,10 @@ export const queryKeys = {
   seasonRounds: (seasonId: string) => ["season", seasonId, "rounds"] as const,
   seasonRoundCount: (seasonId: string) =>
     ["season", seasonId, "roundCount"] as const,
+  seasonStandings: (seasonId: string) =>
+    ["season", seasonId, "standings"] as const,
+  seasonAggregates: (seasonId: string) =>
+    ["season", seasonId, "aggregates"] as const,
 
   // League
   league: (leagueId: string) => ["league", leagueId] as const,

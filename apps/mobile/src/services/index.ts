@@ -5,3 +5,5 @@ export * from "./spotifySearch";
 export * from "./rounds";
 export * from "./seasons";
 export * from "./leagues";
+export * from "./results";
+export * from "./standings";

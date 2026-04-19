@@ -34,6 +34,8 @@ import { usePreviousRound } from "@/queries/usePreviousRound";
 import { useRoundCountForSeason } from "@/queries/useRoundCountForSeason";
 import { useLeague } from "@/queries/useLeague";
 import { useMyRole } from "@/queries/useMyRole";
+import { useRoundResults } from "@/queries/useRoundResults";
+import { useRoundVoters } from "@/queries/useRoundVoters";
 import { MixError } from "@/services/errors";
 import type { VoteInput, VoteCommentInput } from "@/services/votes";
 import type { SubmissionDraft } from "@/services/submissions";
@@ -880,75 +882,19 @@ type RoundResultRow = {
 };
 
 function ResultsPhase({ submissions, roundId }: { submissions: Submission[]; roundId: string }) {
-  const [results, setResults] = useState<RoundResultRow[]>([]);
-  const [votersBySubmission, setVotersBySubmission] = useState<Record<string, VoterEntry[]>>({});
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const resultsQuery = useRoundResults(roundId);
+  const votersQuery = useRoundVoters(roundId);
+  const results = resultsQuery.data ?? [];
+  const votersBySubmission = votersQuery.data ?? {};
+  const loading = resultsQuery.isPending || votersQuery.isPending;
+  const loadError =
+    resultsQuery.error instanceof Error ? resultsQuery.error.message : null;
 
   const submissionCommentById = useMemo(() => {
     const map: Record<string, string | null> = {};
     submissions.forEach((s) => { map[s.id] = s.comment; });
     return map;
   }, [submissions]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoadError(null);
-    setLoading(true);
-
-    Promise.all([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase.rpc as any)('get_round_results', { p_round_id: roundId }),
-      supabase
-        .from('votes')
-        .select('submission_id, points, voter_user_id, users(display_name)')
-        .eq('round_id', roundId),
-      supabase
-        .from('comments')
-        .select('submission_id, body, author_user_id')
-        .eq('round_id', roundId),
-    ]).then(([rpcRes, votesRes, commentsRes]) => {
-      if (cancelled) return;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const err = (rpcRes as any).error;
-      if (err) {
-        setLoadError(err.message ?? 'Could not load results');
-        setResults([]);
-        setVotersBySubmission({});
-        setLoading(false);
-        return;
-      }
-
-      const commentLookup: Record<string, Record<string, string>> = {};
-      (commentsRes.data ?? []).forEach((c) => {
-        if (!commentLookup[c.submission_id]) commentLookup[c.submission_id] = {};
-        commentLookup[c.submission_id][c.author_user_id] = c.body;
-      });
-
-      const voterMap: Record<string, VoterEntry[]> = {};
-      (votesRes.data ?? []).forEach((v) => {
-        if (!voterMap[v.submission_id]) voterMap[v.submission_id] = [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const name = (Array.isArray(v.users) ? (v.users[0] as any)?.display_name : (v.users as any)?.display_name) ?? 'Unknown';
-        voterMap[v.submission_id].push({
-          voter_user_id: v.voter_user_id,
-          voter_name: name,
-          points: v.points,
-          comment: commentLookup[v.submission_id]?.[v.voter_user_id] ?? null,
-        });
-      });
-      Object.values(voterMap).forEach((entries) =>
-        entries.sort((a, b) => b.points - a.points),
-      );
-
-      setResults((rpcRes.data ?? []) as unknown as RoundResultRow[]);
-      setVotersBySubmission(voterMap);
-      setLoading(false);
-    });
-
-    return () => { cancelled = true; };
-  }, [roundId]);
 
   // Sort defensively so ranking never depends on RPC row order.
   const eligible = useMemo(

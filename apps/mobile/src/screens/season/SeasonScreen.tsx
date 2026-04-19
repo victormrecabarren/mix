@@ -11,6 +11,8 @@ import { useSession } from '@/context/SessionContext';
 import { useSeason } from '@/queries/useSeason';
 import { useRoundsForSeason } from '@/queries/useRoundsForSeason';
 import { useLeagueMembers } from '@/queries/useLeagueMembers';
+import { useSeasonStandings } from '@/queries/useSeasonStandings';
+import { useSeasonAggregates } from '@/queries/useSeasonAggregates';
 
 type Season = {
   id: string;
@@ -410,73 +412,38 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
   const { data: members = [], refetch: refetchMembers } =
     useLeagueMembers(leagueId);
 
-  const [standings, setStandings] = useState<StandingRow[]>([]);
-  const [submittersByRound, setSubmittersByRound] = useState<Record<string, string[]>>({});
-  const [votersByRound, setVotersByRound] = useState<Record<string, string[]>>({});
-  const [forfeitsByRound, setForfeitsByRound] = useState<Record<string, number>>({});
+  const { data: standings = [], refetch: refetchStandings } =
+    useSeasonStandings(seasonId);
+  const {
+    data: aggregates = {
+      submittersByRound: {},
+      votersByRound: {},
+      forfeitsByRound: {},
+    },
+    refetch: refetchAggregates,
+  } = useSeasonAggregates(seasonId);
+  const { submittersByRound, votersByRound, forfeitsByRound } = aggregates;
+
   const [tab, setTab] = useState<Tab>(initialTab ?? 'rounds');
 
   const [editingSeasonOpen, setEditingSeasonOpen] = useState(false);
   const [editingRound, setEditingRound] = useState<Round | null>(null);
   const [creatingRound, setCreatingRound] = useState(false);
 
-  // Standings + per-round aggregates still inline — they'll move to the
-  // results/standings slice.
-  const fetchAggregates = useCallback(async () => {
-    const [standingsRes, roundsForAggRes] = await Promise.all([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase.rpc as any)('get_season_standings', { p_season_id: seasonId }),
-      supabase.from('rounds').select('id').eq('season_id', seasonId),
-    ]);
-
-    const roundIds = (roundsForAggRes.data ?? []).map((r: { id: string }) => r.id);
-    const [
-      { data: subsData },
-      { data: votesData },
-      { data: participantsData },
-    ] = roundIds.length > 0
-      ? await Promise.all([
-          supabase.from('submissions').select('round_id, user_id').in('round_id', roundIds),
-          supabase.from('votes').select('round_id, voter_user_id').in('round_id', roundIds),
-          supabase.from('round_participants').select('round_id, is_void').in('round_id', roundIds),
-        ])
-      : [{ data: [] }, { data: [] }, { data: [] }];
-
-    const byRound: Record<string, string[]> = {};
-    for (const sub of (subsData ?? [])) {
-      if (!byRound[sub.round_id]) byRound[sub.round_id] = [];
-      if (!byRound[sub.round_id].includes(sub.user_id)) byRound[sub.round_id].push(sub.user_id);
-    }
-    const votersBy: Record<string, string[]> = {};
-    for (const v of (votesData ?? [])) {
-      if (!votersBy[v.round_id]) votersBy[v.round_id] = [];
-      if (!votersBy[v.round_id].includes(v.voter_user_id)) votersBy[v.round_id].push(v.voter_user_id);
-    }
-    const forfeitsBy: Record<string, number> = {};
-    for (const p of (participantsData ?? [])) {
-      if (p.is_void) forfeitsBy[p.round_id] = (forfeitsBy[p.round_id] ?? 0) + 1;
-    }
-    setSubmittersByRound(byRound);
-    setVotersByRound(votersBy);
-    setForfeitsByRound(forfeitsBy);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sr = standingsRes as any;
-    if (sr.error) {
-      console.warn('get_season_standings:', sr.error.message);
-      setStandings([]);
-    } else {
-      setStandings(Array.isArray(sr.data) ? sr.data : []);
-    }
-  }, [seasonId]);
-
   useFocusEffect(
     useCallback(() => {
       refetchSeason();
       refetchRounds();
       refetchMembers();
-      fetchAggregates();
-    }, [refetchSeason, refetchRounds, refetchMembers, fetchAggregates]),
+      refetchStandings();
+      refetchAggregates();
+    }, [
+      refetchSeason,
+      refetchRounds,
+      refetchMembers,
+      refetchStandings,
+      refetchAggregates,
+    ]),
   );
 
   const [refreshing, setRefreshing] = useState(false);
@@ -486,10 +453,17 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
       refetchSeason(),
       refetchRounds(),
       refetchMembers(),
-      fetchAggregates(),
+      refetchStandings(),
+      refetchAggregates(),
     ]);
     setRefreshing(false);
-  }, [refetchSeason, refetchRounds, refetchMembers, fetchAggregates]);
+  }, [
+    refetchSeason,
+    refetchRounds,
+    refetchMembers,
+    refetchStandings,
+    refetchAggregates,
+  ]);
 
   const loading = seasonLoading;
 
@@ -498,9 +472,16 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
       refetchSeason(),
       refetchRounds(),
       refetchMembers(),
-      fetchAggregates(),
+      refetchStandings(),
+      refetchAggregates(),
     ]);
-  }, [refetchSeason, refetchRounds, refetchMembers, fetchAggregates]);
+  }, [
+    refetchSeason,
+    refetchRounds,
+    refetchMembers,
+    refetchStandings,
+    refetchAggregates,
+  ]);
 
   const sortedByRoundNumber = useMemo(
     () => [...rounds].sort((a, b) => a.round_number - b.round_number),
