@@ -394,7 +394,7 @@ function RoundFormModal({ mode, visible, onClose, onSaved }: {
 
 type Tab = 'rounds' | 'standings';
 
-export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueId?: string }) {
+export function SeasonScreen({ seasonId, leagueId, initialTab }: { seasonId: string; leagueId?: string; initialTab?: Tab }) {
   const router = useRouter();
 
   const [userId, setUserId] = useState<string | null>(null);
@@ -406,7 +406,7 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
   const [votersByRound, setVotersByRound] = useState<Record<string, string[]>>({});
   const [forfeitsByRound, setForfeitsByRound] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>('rounds');
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'rounds');
 
   const [editingSeasonOpen, setEditingSeasonOpen] = useState(false);
   const [editingRound, setEditingRound] = useState<Round | null>(null);
@@ -586,8 +586,9 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
     const activeIds = stage === 'voting'
       ? (votersByRound[round.id] ?? [])
       : (submittersByRound[round.id] ?? []);
-    const doneMembers = members.filter((m) => activeIds.includes(m.user_id));
-    const waitingMembers = members.filter((m) => !activeIds.includes(m.user_id));
+    const participants = members.filter((m) => m.role !== 'spectator');
+    const doneMembers = participants.filter((m) => activeIds.includes(m.user_id));
+    const waitingMembers = participants.filter((m) => !activeIds.includes(m.user_id));
     const doneLabel = stage === 'voting' ? 'Voted' : 'Submitted';
     const forfeitCount = forfeitsByRound[round.id] ?? 0;
 
@@ -654,7 +655,7 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
           </View>
         </View>
         <Text style={styles.seasonMeta}>Season {season.season_number}</Text>
-        {isCommissioner && (
+        {isCommissioner && season.status !== 'completed' && (
           <TouchableOpacity onPress={() => setEditingSeasonOpen(true)}>
             <Text style={styles.editBtn}>Edit Season</Text>
           </TouchableOpacity>
@@ -728,40 +729,60 @@ export function SeasonScreen({ seasonId, leagueId }: { seasonId: string; leagueI
             <Text style={styles.standingsHint}>
               Totals include completed rounds only — they update after each round&apos;s voting deadline passes.
             </Text>
-            {standingsWithRank.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyText}>No standings yet.</Text>
-              </View>
-            ) : (
-              standingsWithRank.map((row) => (
-                <View key={row.user_id} style={styles.standingRow}>
-                  <Text style={styles.standingRank}>{row.displayRank}</Text>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{row.display_name[0]?.toUpperCase() ?? '?'}</Text>
-                  </View>
-                  <View style={styles.standingMeta}>
-                    <Text style={styles.standingName} numberOfLines={1}>{row.display_name}</Text>
-                    {(row.rounds_played > 0 || row.rounds_forfeited > 0) && (
-                      <Text style={styles.standingSub}>
-                        {row.rounds_played} {row.rounds_played === 1 ? 'round' : 'rounds'} played
-                        {row.rounds_forfeited > 0
-                          ? ` · ${row.rounds_forfeited} forfeit${row.rounds_forfeited === 1 ? '' : 's'}`
-                          : ''}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={styles.standingBadges}>
-                    {row.user_id === league?.admin_user_id && (
-                      <Text style={styles.commBadge}>COMM</Text>
-                    )}
-                    <Text style={[styles.roleBadge, row.member_role === 'spectator' && styles.roleBadgeSpectator]}>
-                      {row.member_role.toUpperCase()}
-                    </Text>
-                  </View>
-                  <Text style={styles.standingPts}>{row.total_points}</Text>
-                </View>
-              ))
-            )}
+            {(() => {
+              const participants = standingsWithRank.filter((r) => r.member_role !== 'spectator');
+              const spectators = standingsWithRank.filter((r) => r.member_role === 'spectator');
+              return (
+                <>
+                  {participants.length === 0 ? (
+                    <View style={styles.empty}>
+                      <Text style={styles.emptyText}>No standings yet.</Text>
+                    </View>
+                  ) : (
+                    participants.map((row) => (
+                      <View key={row.user_id} style={styles.standingRow}>
+                        <Text style={styles.standingRank}>{row.displayRank}</Text>
+                        <View style={styles.avatar}>
+                          <Text style={styles.avatarText}>{row.display_name[0]?.toUpperCase() ?? '?'}</Text>
+                        </View>
+                        <View style={styles.standingMeta}>
+                          <Text style={styles.standingName} numberOfLines={1}>{row.display_name}</Text>
+                          {(row.rounds_played > 0 || row.rounds_forfeited > 0) && (
+                            <Text style={styles.standingSub}>
+                              {row.rounds_played} {row.rounds_played === 1 ? 'round' : 'rounds'} played
+                              {row.rounds_forfeited > 0
+                                ? ` · ${row.rounds_forfeited} forfeit${row.rounds_forfeited === 1 ? '' : 's'}`
+                                : ''}
+                            </Text>
+                          )}
+                        </View>
+                        {row.user_id === league?.admin_user_id && (
+                          <Text style={styles.commBadge}>COMM</Text>
+                        )}
+                        <Text style={styles.standingPts}>{row.total_points}</Text>
+                      </View>
+                    ))
+                  )}
+
+                  {spectators.length > 0 && (
+                    <View style={styles.spectatorSection}>
+                      <Text style={styles.spectatorSectionTitle}>SPECTATORS</Text>
+                      {spectators.map((row) => (
+                        <View key={row.user_id} style={styles.spectatorRow}>
+                          <View style={styles.avatar}>
+                            <Text style={styles.avatarText}>{row.display_name[0]?.toUpperCase() ?? '?'}</Text>
+                          </View>
+                          <Text style={styles.spectatorName} numberOfLines={1}>{row.display_name}</Text>
+                          {row.user_id === league?.admin_user_id && (
+                            <Text style={styles.commBadge}>COMM</Text>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </>
+              );
+            })()}
           </View>
         )}
       </ScrollView>
@@ -952,6 +973,10 @@ const styles = StyleSheet.create({
   commBadge: { fontSize: 9, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
   roleBadge: { fontSize: 9, fontWeight: '700', color: '#555', letterSpacing: 1 },
   roleBadgeSpectator: { color: '#444' },
+  spectatorSection: { marginTop: 16, gap: 8 },
+  spectatorSectionTitle: { fontSize: 11, fontWeight: '700', color: '#444', letterSpacing: 1, textTransform: 'uppercase' },
+  spectatorRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4, opacity: 0.6 },
+  spectatorName: { flex: 1, fontSize: 14, color: '#888', fontWeight: '500' },
 
   // Stepper
   stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },

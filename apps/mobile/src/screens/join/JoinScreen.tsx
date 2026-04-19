@@ -7,6 +7,7 @@ import { SwipeSheet } from '@/components/SwipeSheet';
 type JoinInfo = {
   seasonId: string;
   seasonName: string;
+  seasonStatus: string;
   leagueId: string;
   leagueName: string;
   alreadyMember: boolean;
@@ -15,6 +16,7 @@ type JoinInfo = {
 type JoinInviteLookup = {
   season_id: string;
   season_name: string;
+  season_status: string;
   league_id: string;
   league_name: string;
 };
@@ -59,6 +61,7 @@ export function JoinScreen({ token }: { token: string }) {
     setInfo({
       seasonId: inviteInfo.season_id,
       seasonName: inviteInfo.season_name,
+      seasonStatus: inviteInfo.season_status,
       leagueId: inviteInfo.league_id,
       leagueName: inviteInfo.league_name,
       alreadyMember,
@@ -105,6 +108,15 @@ export function JoinScreen({ token }: { token: string }) {
       <View style={styles.stateBlock}>
         <Text style={styles.errorTitle}>Invalid invite link</Text>
         <Text style={styles.errorBody}>This link may have expired or is incorrect.</Text>
+      </View>
+    );
+  } else if (info.seasonStatus === 'completed') {
+    content = (
+      <View style={styles.stateBlock}>
+        <Text style={styles.errorTitle}>Season has ended</Text>
+        <Text style={styles.errorBody}>
+          {info.seasonName} in {info.leagueName} is no longer accepting new members.
+        </Text>
       </View>
     );
   } else if (info.alreadyMember) {

@@ -73,7 +73,10 @@ const COMMENTS = {
   C: ['so catchy', 'love the hook', "can't stop listening", 'perfect pop', 'earworm'],
   D: ['the drop is everything', 'certified banger', 'pure energy', 'this one goes off', 'dark and deep'],
   E: ['smooth', 'late night vibes', 'the chord changes', 'real musicianship', 'this is art'],
+  andrea: ['obsessed', 'this is everything', 'certified classic', 'the vibe is immaculate', 'on repeat'],
 };
+
+const DEFAULT_GENRE = 'pop';
 
 // ─── Env + state ─────────────────────────────────────────────────────────────
 
@@ -286,13 +289,13 @@ async function advanceRound(env, args) {
 
 async function submitForPlayer(env, args) {
   const key = args.player?.toUpperCase();
+  const rawKey = args.player;
   const roundId = args.round;
-  if (!key || !roundId) { console.error('Usage: submit --player <A|B|C> --round <id>'); process.exit(1); }
-  if (!PLAYERS[key]) { console.error(`Unknown player "${key}". Use A, B, or C.`); process.exit(1); }
+  if (!rawKey || !roundId) { console.error('Usage: submit --player <A|B|C|andrea|...> --round <id>'); process.exit(1); }
 
   const state = loadState();
-  const userId = state.players?.[key];
-  if (!userId) { console.error(`No saved ID for Player ${key} — run setup-players first`); process.exit(1); }
+  const userId = state.players?.[key] ?? state.players?.[rawKey.toLowerCase()];
+  if (!userId) { console.error(`No saved ID for player "${rawKey}" — run register-player or setup-players first`); process.exit(1); }
 
   // Get round → season info
   const roundRes = await sb(env, `/rest/v1/rounds?id=eq.${roundId}&select=*,seasons(submissions_per_user)`);
@@ -300,8 +303,8 @@ async function submitForPlayer(env, args) {
   if (!round) { console.error('Round not found'); process.exit(1); }
   const limit = round.seasons?.submissions_per_user ?? 1;
 
-  // Fetch recommendations
-  const { genre } = PLAYERS[key];
+  // Fetch recommendations — named players fall back to DEFAULT_GENRE
+  const genre = PLAYERS[key]?.genre ?? DEFAULT_GENRE;
   console.log(`Fetching ${limit} ${genre} recommendation(s) from Spotify...`);
   const token = await spotifyToken(env);
   const tracks = await recommendedTracks(token, genre, limit);
@@ -332,13 +335,14 @@ async function submitForPlayer(env, args) {
 
 async function voteForPlayer(env, args) {
   const key = args.player?.toUpperCase();
+  const rawKey = args.player; // preserve original casing for named players
   const roundId = args.round;
-  if (!key || !roundId) { console.error('Usage: vote --player <A|B|C> --round <id>'); process.exit(1); }
-  if (!PLAYERS[key]) { console.error(`Unknown player "${key}". Use A, B, or C.`); process.exit(1); }
+  if (!rawKey || !roundId) { console.error('Usage: vote --player <A|B|C|andrea|...> --round <id>'); process.exit(1); }
 
   const state = loadState();
-  const userId = state.players?.[key];
-  if (!userId) { console.error(`No saved ID for Player ${key} — run setup-players first`); process.exit(1); }
+  // Named players (e.g. andrea) are stored in state.players by their name (lowercase)
+  const userId = state.players?.[key] ?? state.players?.[rawKey.toLowerCase()];
+  if (!userId) { console.error(`No saved ID for player "${rawKey}" — run register-player or setup-players first`); process.exit(1); }
 
   // Get round → season points config
   const roundRes = await sb(env, `/rest/v1/rounds?id=eq.${roundId}&select=*,seasons(default_points_per_round,default_max_points_per_track)`);
@@ -376,7 +380,8 @@ async function voteForPlayer(env, args) {
   }
 
   // Leave a comment on a random submission
-  const commentText = COMMENTS[key][Math.floor(Math.random() * COMMENTS[key].length)];
+  const commentPool = COMMENTS[key] ?? COMMENTS[rawKey.toLowerCase()] ?? ['great track'];
+  const commentText = commentPool[Math.floor(Math.random() * commentPool.length)];
   const targetSub = subs[Math.floor(Math.random() * subs.length)];
   const commentRes = await sb(env, '/rest/v1/comments', 'POST', {
     round_id: roundId,
@@ -540,15 +545,30 @@ const [,, command, ...rest] = process.argv;
 const args = parseArgs(rest);
 const env = loadEnv();
 
+// register-player: seed a real user's ID into state so they can be used with
+// submit/vote commands by name (e.g. --player andrea).
+// Usage: node scripts/test.mjs register-player --name andrea --id <uuid>
+async function registerPlayer(env, args) {
+  const name = args.name?.toLowerCase();
+  const id = args.id;
+  if (!name || !id) { console.error('Usage: register-player --name <name> --id <uuid>'); process.exit(1); }
+  const state = loadState();
+  state.players = state.players ?? {};
+  state.players[name] = id;
+  saveState(state);
+  console.log(`✓ Registered "${name}" → ${id}`);
+}
+
 const commands = {
-  'setup-players':  setupPlayers,
-  'create-user':    createUser,
-  join:             joinForPlayer,
-  advance:          advanceRound,
-  submit:           submitForPlayer,
-  vote:             voteForPlayer,
-  'close-voting':   closeVoting,
-  'round-results':  roundResults,
+  'setup-players':    setupPlayers,
+  'create-user':      createUser,
+  'register-player':  registerPlayer,
+  join:               joinForPlayer,
+  advance:            advanceRound,
+  submit:             submitForPlayer,
+  vote:               voteForPlayer,
+  'close-voting':     closeVoting,
+  'round-results':    roundResults,
 };
 
 const fn = commands[command];

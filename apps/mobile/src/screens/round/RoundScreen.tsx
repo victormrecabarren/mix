@@ -39,6 +39,7 @@ type Round = {
   seasons: {
     id: string;
     name: string;
+    status: string;
     submissions_per_user: number;
     default_points_per_round: number;
     default_max_points_per_track: number;
@@ -620,6 +621,7 @@ function VotingPhase({
   submissions,
   myVotes,
   didSubmit,
+  isSpectator,
   onVoted,
   onScrollToTop,
 }: {
@@ -628,6 +630,7 @@ function VotingPhase({
   submissions: Submission[];
   myVotes: Record<string, number>;
   didSubmit: boolean;
+  isSpectator: boolean;
   onVoted: () => void;
   onScrollToTop?: () => void;
 }) {
@@ -712,6 +715,25 @@ function VotingPhase({
       setSubmitting(false);
     }
   };
+
+  if (isSpectator) {
+    return (
+      <View style={styles.phaseCard}>
+        <View style={styles.spectatorCard}>
+          <Text style={styles.spectatorCardTitle}>You're spectating</Text>
+          <Text style={styles.spectatorCardBody}>
+            Sit back — participants are voting on their submissions. Results will show when voting closes.
+          </Text>
+        </View>
+        {submissions.map((sub) => (
+          <View key={sub.id} style={[styles.submissionVoteCard, { opacity: 0.4 }]}>
+            <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
+            {!!sub.comment && <Text style={styles.submissionComment}>"{sub.comment}"</Text>}
+          </View>
+        ))}
+      </View>
+    );
+  }
 
   if (!didSubmit) {
     return (
@@ -1227,6 +1249,8 @@ export function RoundScreen({
   const [prevRound, setPrevRound] = useState<SiblingRound | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [isCommissioner, setIsCommissioner] = useState(false);
+  const [myRole, setMyRole] = useState<'participant' | 'spectator'>('participant');
+  const [totalRounds, setTotalRounds] = useState(0);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [myVotes, setMyVotes] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -1241,7 +1265,7 @@ export function RoundScreen({
     const { data: roundData } = await supabase
       .from("rounds")
       .select(
-        "id, round_number, prompt, description, submission_deadline_at, voting_deadline_at, season_id, seasons(id, name, submissions_per_user, default_points_per_round, default_max_points_per_track, league_id)",
+        "id, round_number, prompt, description, submission_deadline_at, voting_deadline_at, season_id, seasons(id, name, status, submissions_per_user, default_points_per_round, default_max_points_per_track, league_id)",
       )
       .eq("id", roundId)
       .single();
@@ -1257,14 +1281,14 @@ export function RoundScreen({
     const r: Round = { ...roundData, seasons: season ?? null };
     setRound(r);
 
-    // Check if current user is commissioner of this league
+    // Check commissioner status and league role in parallel
     if (season?.league_id && user) {
-      const { data: leagueData } = await supabase
-        .from("leagues")
-        .select("admin_user_id")
-        .eq("id", season.league_id)
-        .single();
+      const [{ data: leagueData }, { data: memberData }] = await Promise.all([
+        supabase.from("leagues").select("admin_user_id").eq("id", season.league_id).single(),
+        supabase.from("league_members").select("role").eq("league_id", season.league_id).eq("user_id", user.id).single(),
+      ]);
       setIsCommissioner(leagueData?.admin_user_id === user.id);
+      setMyRole(memberData?.role === 'spectator' ? 'spectator' : 'participant');
     }
 
     // Fetch previous round to determine if this one is open
@@ -1280,7 +1304,7 @@ export function RoundScreen({
       setPrevRound(null);
     }
 
-    const [{ data: subData }, { data: voteData }] = await Promise.all([
+    const [{ data: subData }, { data: voteData }, { count: roundCount }] = await Promise.all([
       supabase
         .from("submissions")
         .select(
@@ -1292,8 +1316,13 @@ export function RoundScreen({
         .select("submission_id, points")
         .eq("round_id", roundId)
         .eq("voter_user_id", user.id),
+      supabase
+        .from("rounds")
+        .select("id", { count: "exact", head: true })
+        .eq("season_id", r.season_id),
     ]);
 
+    setTotalRounds(roundCount ?? 0);
     setSubmissions(subData ?? []);
 
     const voteMap: Record<string, number> = {};
@@ -1389,6 +1418,26 @@ export function RoundScreen({
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
       >
+      {phase === 'results' &&
+        round.seasons?.status === 'completed' &&
+        round.round_number === totalRounds && (
+        <TouchableOpacity
+          style={styles.seasonCompleteBanner}
+          onPress={() => router.push({
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            pathname: '/(tabs)/(stack)/season/[id]' as any,
+            params: { id: round.season_id, leagueId: round.seasons?.league_id, initialTab: 'standings' },
+          })}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.seasonCompleteEmoji}>🏆</Text>
+          <View style={styles.seasonCompleteText}>
+            <Text style={styles.seasonCompleteTitle}>Season complete!</Text>
+            <Text style={styles.seasonCompleteSub}>See the final standings →</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
       <View style={styles.roundMeta}>
         <Text style={styles.roundTitle}>{round.prompt}</Text>
         <Text style={[styles.phaseBadge, { color: phaseColor[phase] }]}>
@@ -1428,12 +1477,22 @@ export function RoundScreen({
       )}
 
       {phase === "submissions" && userId && (
-        <SubmissionPhase
-          round={round}
-          userId={userId}
-          mySubmissions={mySubmissions}
-          onSubmitted={() => router.back()}
-        />
+        myRole === 'spectator' ? (
+          <View style={styles.spectatorPlaylistCard}>
+            <Text style={styles.spectatorPlaylistEmoji}>🎵</Text>
+            <Text style={styles.spectatorPlaylistTitle}>A playlist is forming</Text>
+            <Text style={styles.spectatorPlaylistBody}>
+              Participants are locking in their picks for "{round.prompt}". You'll be able to listen once submissions close.
+            </Text>
+          </View>
+        ) : (
+          <SubmissionPhase
+            round={round}
+            userId={userId}
+            mySubmissions={mySubmissions}
+            onSubmitted={() => router.back()}
+          />
+        )
       )}
 
       {phase === "voting" && userId && (
@@ -1443,6 +1502,7 @@ export function RoundScreen({
           submissions={submissions}
           myVotes={myVotes}
           didSubmit={mySubmissions.length > 0}
+          isSpectator={myRole === 'spectator'}
           onVoted={fetchData}
           onScrollToTop={scrollToTop}
         />
@@ -1699,6 +1759,42 @@ const styles = StyleSheet.create({
   },
   votedBannerText: { color: "#1DB954", fontSize: 13, fontWeight: "700" },
   votedBannerSub: { color: "#1DB95499", fontSize: 11 },
+  spectatorCard: {
+    backgroundColor: '#0d0d1a',
+    borderRadius: 8,
+    padding: 14,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#9b59b633',
+  },
+  spectatorCardTitle: { color: '#9b59b6', fontSize: 13, fontWeight: '700' },
+  spectatorCardBody: { color: '#9b59b699', fontSize: 12, lineHeight: 17 },
+  spectatorPlaylistCard: {
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#0d0d1a',
+    borderWidth: 1,
+    borderColor: '#9b59b633',
+  },
+  spectatorPlaylistEmoji: { fontSize: 48 },
+  spectatorPlaylistTitle: { fontSize: 18, fontWeight: '800', color: '#fff', textAlign: 'center' },
+  spectatorPlaylistBody: { fontSize: 13, color: '#888', lineHeight: 20, textAlign: 'center' },
+  seasonCompleteBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#1a1400',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FFD70044',
+  },
+  seasonCompleteEmoji: { fontSize: 36 },
+  seasonCompleteText: { flex: 1, gap: 3 },
+  seasonCompleteTitle: { fontSize: 16, fontWeight: '800', color: '#FFD700' },
+  seasonCompleteSub: { fontSize: 12, color: '#FFD70099' },
   ineligibleBanner: {
     backgroundColor: '#1a0a00',
     borderRadius: 8,

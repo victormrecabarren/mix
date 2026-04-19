@@ -27,7 +27,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const appState = useRef(AppState.currentState);
 
   const refresh = useCallback(async () => {
-    const p = await getSpotifyProfile();
+    let p = await getSpotifyProfile();
     // Crash recovery: if Spotify session exists but Supabase session was lost
     // (e.g. AsyncStorage cleared), re-run the auth bridge silently.
     if (p && !(await hasSupabaseSession())) {
@@ -40,6 +40,27 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         }
       }
     }
+
+    // Fallback for email/password logins (test players): if there's no Spotify
+    // profile but a live Supabase session exists, build a minimal profile from
+    // the users table so the app recognises the user as logged in.
+    if (!p) {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const supabaseUser = sessionData.session?.user;
+      if (supabaseUser) {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('display_name')
+          .eq('id', supabaseUser.id)
+          .single();
+        p = {
+          id: supabaseUser.id,
+          displayName: userData?.display_name ?? supabaseUser.email ?? 'Test Player',
+          email: supabaseUser.email,
+        };
+      }
+    }
+
     setProfile(p);
     if (p) {
       const { data } = await supabase.auth.getSession();
