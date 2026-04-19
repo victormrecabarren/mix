@@ -6,6 +6,8 @@
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
     "dev": "turbo run dev --parallel",
+    "gen-types": "supabase gen types typescript --project-id dmkxaqhmcbrzqnpnpicx > packages/db/types.ts",
+    "db:push": "supabase db push && pnpm gen-types",
     "test:setup": "node scripts/test.mjs setup-players",
     "test:create-user": "node scripts/test.mjs create-user",
     "test:join": "node scripts/test.mjs join",

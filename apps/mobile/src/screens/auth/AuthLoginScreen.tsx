@@ -1,10 +1,9 @@
 import { useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import { loginWithSpotify, getValidAccessToken } from '@/lib/spotifyAuth';
-import { signInToSupabase } from '@/lib/supabaseAuth';
 import { useSession } from '@/context/SessionContext';
-import { supabase } from '@/lib/supabase';
+import { signInWithSpotify, signInWithPassword } from '@/services/auth';
+import { MixError } from '@/services/errors';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -30,12 +29,10 @@ export function AuthLoginScreen() {
   const handleSpotifyLogin = async () => {
     setLoading(true);
     try {
-      await loginWithSpotify();
-      const token = await getValidAccessToken();
-      if (token) await signInToSupabase(token);
+      await signInWithSpotify();
       await refresh();
     } catch (err) {
-      Alert.alert('Login failed', err instanceof Error ? err.message : 'Something went wrong');
+      Alert.alert('Login failed', err instanceof MixError ? err.message : 'Something went wrong');
     } finally {
       setLoading(false);
     }
@@ -45,11 +42,10 @@ export function AuthLoginScreen() {
     if (!email || !password) return;
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      await signInWithPassword(email, password);
       await refresh();
     } catch (err) {
-      Alert.alert('Login failed', err instanceof Error ? err.message : 'Unknown error');
+      Alert.alert('Login failed', err instanceof MixError ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
     }

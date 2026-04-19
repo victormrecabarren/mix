@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionProvider, useSession } from "@/context/SessionContext";
 import { LeagueProvider } from "@/context/LeagueContext";
 import { SpotifyPlayerProvider, useSpotifyPlayer } from "@/playback/SpotifyWebPlayer";
@@ -30,7 +31,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     if (!session && !inAuthGroup && !inAuthCallback) {
       router.replace("/(auth)");
     } else if (session && inAuthGroup) {
-      router.replace("/(tabs)");
+      router.replace("/(tabs)/(home)");
     }
   }, [session, loading, segments, router]);
 
@@ -38,24 +39,28 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const [queryClient] = useState(() => new QueryClient());
+
   return (
-    <SessionProvider>
-      <SpotifyPlayerProvider>
-        <SoundCloudPlayerProvider>
-        <PlaybackProvider>
-        <LeagueProvider>
-        <AuthGate>
-          <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
-            <Stack.Screen name="(auth)/index" />
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="auth/callback" />
-            <Stack.Screen name="join/index" />
-          </Stack>
-        </AuthGate>
-        </LeagueProvider>
-        </PlaybackProvider>
-        </SoundCloudPlayerProvider>
-      </SpotifyPlayerProvider>
-    </SessionProvider>
+    <QueryClientProvider client={queryClient}>
+      <SessionProvider>
+        <SpotifyPlayerProvider>
+          <SoundCloudPlayerProvider>
+          <PlaybackProvider>
+          <LeagueProvider>
+          <AuthGate>
+            <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
+              <Stack.Screen name="(auth)/index" />
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="auth/callback" />
+              <Stack.Screen name="join/index" />
+            </Stack>
+          </AuthGate>
+          </LeagueProvider>
+          </PlaybackProvider>
+          </SoundCloudPlayerProvider>
+        </SpotifyPlayerProvider>
+      </SessionProvider>
+    </QueryClientProvider>
   );
 }

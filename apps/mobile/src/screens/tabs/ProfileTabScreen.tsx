@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlayback } from '@/playback/PlaybackContext';
 import { useSession } from '@/context/SessionContext';
 import { useLeague } from '@/context/LeagueContext';
-import { supabase } from '@/lib/supabase';
+import { useMyLeagues } from '@/queries/useMyLeagues';
 
 function formatMs(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -150,21 +150,9 @@ export function ProfileTabScreen() {
     next,
     previous,
   } = usePlayback();
-  const { session, signOut } = useSession();
+  const { session, supabaseUserId, signOut } = useSession();
   const { activeLeague, setActiveLeagueId, activeLeagueId } = useLeague();
-  const [leagues, setLeagues] = useState<{ id: string; name: string }[]>([]);
-
-  useEffect(() => {
-    supabase
-      .from('league_members')
-      .select('league:leagues(id, name)')
-      .then(({ data }) => {
-        const flat = (data ?? [])
-          .map((r) => r.league as { id: string; name: string } | null)
-          .filter((l): l is { id: string; name: string } => l !== null);
-        setLeagues(flat);
-      });
-  }, []);
+  const { data: leagues = [] } = useMyLeagues(supabaseUserId ?? undefined);
 
   const handleSwitchLeague = () => {
     if (leagues.length === 0) { Alert.alert('No leagues found'); return; }

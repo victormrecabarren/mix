@@ -6,8 +6,10 @@ import {
 import { KeyboardScroll } from '@/components/KeyboardScroll';
 import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { Stack, useRouter } from 'expo-router';
-import { supabase } from '@/lib/supabase';
 import { useLeague } from '@/context/LeagueContext';
+import { useCreateSeason } from '@/queries/useCreateSeason';
+import { hasInProgressSeason } from '@/services/seasons';
+import { MixError } from '@/services/errors';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -317,7 +319,8 @@ export function CreateSeasonFlow() {
   const router = useRouter();
   const { activeLeagueId } = useLeague();
   const [step, setStep] = useState<1 | 2>(1);
-  const [submitting, setSubmitting] = useState(false);
+  const createSeasonMutation = useCreateSeason();
+  const submitting = createSeasonMutation.isPending;
 
   const [season, setSeason] = useState<SeasonForm>(defaultSeason);
   const [rounds, setRounds] = useState<RoundForm[]>([makeRound(defaultSeason)]);
@@ -354,59 +357,32 @@ export function CreateSeasonFlow() {
 
   const handleSubmit = async () => {
     if (!activeLeagueId) return;
-    setSubmitting(true);
     try {
-      // FE guard: check for in-progress season before hitting the DB trigger
-      const { data: liveRounds } = await supabase
-        .from('rounds')
-        .select('id, seasons!inner(league_id)')
-        .gt('voting_deadline_at', new Date().toISOString())
-        .eq('seasons.league_id', activeLeagueId);
-
-      if (liveRounds && liveRounds.length > 0) {
+      if (await hasInProgressSeason(activeLeagueId)) {
         Alert.alert('Season in progress', 'A season is already running in this league. Wait for it to finish before creating a new one.');
         return;
       }
 
-      // Get current season count to set season_number
-      const { count } = await supabase
-        .from('seasons')
-        .select('id', { count: 'exact', head: true })
-        .eq('league_id', activeLeagueId!);
-
-      const { data: seasonData, error: seasonErr } = await supabase
-        .from('seasons')
-        .insert({
-          league_id: activeLeagueId!,
-          name: season.name,
-          season_number: (count ?? 0) + 1,
-          participant_cap: season.hasParticipantCap ? parseInt(season.participantCap) || null : null,
-          submissions_per_user: season.submissionsPerUser,
-          default_points_per_round: season.pointsPerRound,
-          default_max_points_per_track: season.maxPointsPerTrack,
-        })
-        .select('id')
-        .single();
-      if (seasonErr) throw new Error(seasonErr.message);
-
-      const { error: roundsErr } = await supabase.from('rounds').insert(
-        rounds.map((r, i) => ({
-          season_id: seasonData!.id,
-          round_number: i + 1,
+      await createSeasonMutation.mutateAsync({
+        leagueId: activeLeagueId,
+        name: season.name,
+        participantCap: season.hasParticipantCap
+          ? parseInt(season.participantCap) || null
+          : null,
+        submissionsPerUser: season.submissionsPerUser,
+        defaultPointsPerRound: season.pointsPerRound,
+        defaultMaxPointsPerTrack: season.maxPointsPerTrack,
+        rounds: rounds.map((r) => ({
           prompt: r.prompt,
           description: r.description.trim(),
-          submission_deadline_at: r.submissionDeadline.toISOString(),
-          voting_deadline_at: r.votingDeadline.toISOString(),
+          submissionDeadlineAt: r.submissionDeadline,
+          votingDeadlineAt: r.votingDeadline,
         })),
-      );
-      if (roundsErr) throw new Error(roundsErr.message);
+      });
 
-      // Go back to Home — LeagueScreen refetches on focus and shows the new season.
       router.back();
     } catch (err) {
-      Alert.alert('Failed', err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setSubmitting(false);
+      Alert.alert('Failed', err instanceof MixError ? err.message : 'Unknown error');
     }
   };
 
