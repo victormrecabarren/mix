@@ -8,6 +8,9 @@ import { SoundCloudPlayerProvider } from "@/playback/SoundCloudWebPlayer";
 import { PlaybackProvider } from "@/playback/PlaybackContext";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
 
+// TEMP: default route override for UI experimentation. To rip out, set to null.
+const PREVIEW_DEFAULT: string | null = "/ui-preview";
+
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { session, loading } = useSession();
   const { init } = useSpotifyPlayer();
@@ -28,7 +31,15 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     if (loading) return;
     const inAuthGroup = segments[0] === "(auth)";
     const inAuthCallback = segments[0] === "auth";
-    if (!session && !inAuthGroup && !inAuthCallback) {
+    const inPreview = segments[0] === "ui-preview";
+
+    // TEMP: while PREVIEW_DEFAULT is set, route all traffic into the preview.
+    if (PREVIEW_DEFAULT && !inPreview && !inAuthCallback) {
+      router.replace(PREVIEW_DEFAULT as never);
+      return;
+    }
+
+    if (!session && !inAuthGroup && !inAuthCallback && !inPreview) {
       router.replace("/(auth)");
     } else if (session && inAuthGroup) {
       router.replace("/(tabs)/(home)");
@@ -54,6 +65,8 @@ export default function RootLayout() {
               <Stack.Screen name="(tabs)" />
               <Stack.Screen name="auth/callback" />
               <Stack.Screen name="join/index" />
+              {/* TEMP: preview routes for UI experiments. Delete when done. */}
+              <Stack.Screen name="ui-preview" />
             </Stack>
           </AuthGate>
           </LeagueProvider>
