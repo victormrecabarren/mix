@@ -27,7 +27,6 @@ export default function UiPreviewLayout() {
           (params as { id?: string } | undefined)?.id
         }
       />
-      <Stack.Screen name="category/[id]" />
     </Stack>
   );
 }

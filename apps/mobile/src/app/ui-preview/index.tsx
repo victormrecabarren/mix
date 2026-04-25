@@ -7,8 +7,15 @@
 // the preview for now but factored so they can graduate into the real app
 // when the design direction is locked in.
 
-import { useCallback, useRef } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useMemo, useRef } from "react";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -22,6 +29,13 @@ import { v1 } from "./_tokens";
 // 0% = top of source, 100% = bottom. Raise to slide the visible slice DOWN
 // the image. Iterate until the focal sits right in the 16:10 tile.
 const ACTIVE_CARD_CROP_Y = "32%";
+
+// Playlist rail layout. The rail is a horizontal scroller of 2-tall columns
+// that visually matches the old 2-col square grid when at rest (2 columns
+// visible = 4 tiles), but keeps growing off-screen instead of down the page.
+const RAIL_H_PADDING = 22; // keeps edges aligned with the rest of the screen
+const RAIL_GAP = 12; // gap between columns AND between the two rows
+const RAIL_COLUMNS_VISIBLE = 2;
 
 // ── Placeholder fixtures (mirror playlist-shared.jsx) ────────────────
 
@@ -59,7 +73,7 @@ const PLAYLISTS: Array<{
   },
   {
     id: "p3",
-    prompt: "Something your parents would hate",
+    prompt: "Music your parents hate",
     season: "Winter",
     n: 2,
     tracks: 12,
@@ -128,6 +142,26 @@ const PLAYERS = [
 
 export default function V1ArchiveHome() {
   const router = useRouter();
+  const { width: screenW } = useWindowDimensions();
+
+  // Tile width chosen so that RAIL_COLUMNS_VISIBLE columns fit exactly inside
+  // the rail's content area (screen minus horizontal padding, minus the gaps
+  // between the visible columns). One tile's height is derived from aspect
+  // ratio 1 in styles.
+  const tileWidth =
+    (screenW - RAIL_H_PADDING * 2 - RAIL_GAP * (RAIL_COLUMNS_VISIBLE - 1)) /
+    RAIL_COLUMNS_VISIBLE;
+
+  // Chunk playlists into columns of 2. Items flow top-to-bottom within a
+  // column, then wrap to the next column (i.e. reading order is: [0]=col0/row0,
+  // [1]=col0/row1, [2]=col1/row0, [3]=col1/row1, [4]=col2/row0, …).
+  const columns = useMemo(() => {
+    const out: (typeof PLAYLISTS)[number][][] = [];
+    for (let i = 0; i < PLAYLISTS.length; i += 2) {
+      out.push(PLAYLISTS.slice(i, i + 2));
+    }
+    return out;
+  }, []);
 
   // Guard against double-opens during a closing zoom: iOS can't animate two
   // zoom transitions that target overlapping source UIViews at once, so we
@@ -264,50 +298,66 @@ export default function V1ArchiveHome() {
               {PLAYLISTS.length} · all seasons ›
             </Text>
           </View>
-          <View style={styles.grid}>
-            {PLAYLISTS.map((p) => {
-              const subtitle = `${p.season} Season · R${String(p.n).padStart(2, "0")}`;
-              return (
-                <Pressable
-                  key={p.id}
-                  style={styles.gridItem}
-                  onPress={() =>
-                    openRound({
-                      id: p.id,
-                      title: p.prompt,
-                      subtitle,
-                      meta: `${p.tracks} picks · wrapped`,
-                      imageKey: p.imageKey,
-                      description:
-                        "A completed round from your league. Tap play to hear every submitter's pick in order, or shuffle for a blind re-listen.",
-                    })
-                  }
-                >
-                  <ZoomSource
-                    zoomSourceId={`round-${p.id}`}
-                    style={styles.gridArt}
-                  >
-                    <View style={styles.fill}>
-                      <Image
-                        source={ROUND_IMAGES[p.imageKey]}
-                        style={styles.fill}
-                        contentFit="cover"
-                        contentPosition="top"
-                        transition={0}
-                      />
-                    </View>
-                  </ZoomSource>
-                  <Text style={styles.gridPrompt} numberOfLines={2}>
-                    {p.prompt}
-                  </Text>
-                  <Text style={styles.gridMeta} numberOfLines={1}>
-                    {p.season} · R{String(p.n).padStart(2, "0")} · {p.tracks}{" "}
-                    tracks
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            // Snap a column at a time for a tactile feel. decelerationRate
+            // "fast" keeps the swipe crisp; without it snap feels sluggish.
+            decelerationRate="fast"
+            snapToInterval={tileWidth + RAIL_GAP}
+            snapToAlignment="start"
+            contentContainerStyle={styles.railContent}
+          >
+            {columns.map((col, colIdx) => (
+              <View
+                key={`col-${colIdx}`}
+                style={[styles.railColumn, { width: tileWidth }]}
+              >
+                {col.map((p) => {
+                  const subtitle = `${p.season} Season · R${String(p.n).padStart(2, "0")}`;
+                  return (
+                    <Pressable
+                      key={p.id}
+                      style={styles.railItem}
+                      onPress={() =>
+                        openRound({
+                          id: p.id,
+                          title: p.prompt,
+                          subtitle,
+                          meta: `${p.tracks} picks · wrapped`,
+                          imageKey: p.imageKey,
+                          description:
+                            "A completed round from your league. Tap play to hear every submitter's pick in order, or shuffle for a blind re-listen.",
+                        })
+                      }
+                    >
+                      <ZoomSource
+                        zoomSourceId={`round-${p.id}`}
+                        style={styles.gridArt}
+                      >
+                        <View style={styles.fill}>
+                          <Image
+                            source={ROUND_IMAGES[p.imageKey]}
+                            style={styles.fill}
+                            contentFit="cover"
+                            contentPosition="top"
+                            transition={0}
+                          />
+                        </View>
+                      </ZoomSource>
+                      <Text style={styles.gridPrompt} numberOfLines={2}>
+                        {p.prompt}
+                      </Text>
+                      <Text style={styles.gridMeta} numberOfLines={1}>
+                        {p.season} · R{String(p.n).padStart(2, "0")} ·{" "}
+                        {p.tracks} tracks
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </ScrollView>
 
           {/* ── Seasons ── */}
           <View style={styles.seasonsSection}>
@@ -378,19 +428,11 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   leagueTag: {
-    fontFamily: v1.fonts.serifItalic,
-    fontSize: 11,
-    letterSpacing: 1.8,
-    textTransform: "uppercase",
-    color: v1.muted,
+    ...v1.text.homeLeagueTag,
   },
   pageTitle: {
-    fontFamily: v1.fonts.sansBold,
-    fontSize: 34,
-    letterSpacing: -1.2,
-    color: v1.ink,
+    ...v1.text.homePageTitle,
     marginTop: 4,
-    lineHeight: 36,
   },
   avatarStack: { flexDirection: "row" },
   avatar: {
@@ -403,38 +445,30 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarInitial: {
-    fontFamily: v1.fonts.sansBold,
-    fontSize: 11,
-    color: "#fff",
+    ...v1.text.avatarInitial,
   },
 
   // Hero meta
   heroMeta: { paddingHorizontal: 22, paddingTop: 10 },
   liveLabel: {
-    fontFamily: v1.fonts.sansBold,
-    fontSize: 11,
-    letterSpacing: 1.4,
-    textTransform: "uppercase",
-    color: v1.accent,
+    ...v1.text.homeLiveLabel,
   },
   heroPrompt: {
-    fontFamily: v1.fonts.serifItalic,
-    fontSize: 32,
-    letterSpacing: -0.6,
-    lineHeight: 34,
-    color: v1.ink,
+    ...v1.text.homeHeroPrompt,
     marginTop: 6,
   },
   heroDescriptor: {
-    fontFamily: v1.fonts.sansMedium,
-    fontSize: 12,
-    color: v1.muted,
+    ...v1.text.homeHeroDescriptor,
     marginTop: 6,
   },
 
   // Hero image
   heroImageWrap: {
-    marginHorizontal: 22,
+    // Mathematically centered (22 on each side). If the card reads as
+    // left-leaning, that's the liveBadge + left-aligned heroMeta text above
+    // biasing your eye — bump the left margin +1-2pt to optically center.
+    marginLeft: 22,
+    marginRight: 0,
     marginTop: 14,
     borderRadius: 22,
     overflow: "hidden",
@@ -467,11 +501,7 @@ const styles = StyleSheet.create({
     backgroundColor: v1.accent,
   },
   liveBadgeText: {
-    fontFamily: v1.fonts.sansBold,
-    fontSize: 10,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    color: v1.ink,
+    ...v1.text.liveBadgeText,
   },
   heroImageFooter: {
     position: "absolute",
@@ -480,18 +510,10 @@ const styles = StyleSheet.create({
     right: 14,
   },
   heroPhase: {
-    fontFamily: v1.fonts.sansSemi,
-    fontSize: 11,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: "rgba(255,255,255,0.9)",
+    ...v1.text.homeHeroPhase,
   },
   heroCta: {
-    fontFamily: v1.fonts.serifMedium,
-    fontSize: 20,
-    lineHeight: 22,
-    letterSpacing: -0.3,
-    color: "#fff",
+    ...v1.text.homeHeroCta,
     marginTop: 4,
   },
 
@@ -504,27 +526,26 @@ const styles = StyleSheet.create({
     paddingTop: 28,
   },
   sectionTitle: {
-    fontFamily: v1.fonts.sansBold,
-    fontSize: 22,
-    letterSpacing: -0.6,
-    color: v1.ink,
+    ...v1.text.sectionTitle,
   },
   sectionMeta: {
-    fontFamily: v1.fonts.sansMedium,
-    fontSize: 12,
-    color: v1.muted,
+    ...v1.text.sectionMeta,
   },
 
-  // Grid
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    paddingHorizontal: 22,
+  // Playlist rail (horizontal scroller of 2-tall columns)
+  railContent: {
+    paddingHorizontal: RAIL_H_PADDING,
     paddingTop: 14,
-    gap: 12,
+    gap: RAIL_GAP,
   },
-  gridItem: {
-    width: "48%",
+  railColumn: {
+    // Two rows inside each column, evenly spaced.
+    gap: RAIL_GAP,
+  },
+  railItem: {
+    // Width comes from the column; letting the item fill keeps the tile
+    // aligned with the column width whatever screen size we're on.
+    width: "100%",
   },
   gridArt: {
     aspectRatio: 1,
@@ -537,17 +558,11 @@ const styles = StyleSheet.create({
   },
   gridFill: { flex: 1 },
   gridPrompt: {
-    fontFamily: v1.fonts.serifMedium,
-    fontSize: 14,
-    lineHeight: 17,
-    letterSpacing: -0.1,
-    color: v1.ink,
+    ...v1.text.playlistTilePrompt,
     marginTop: 8,
   },
   gridMeta: {
-    fontFamily: v1.fonts.sansMedium,
-    fontSize: 11,
-    color: v1.muted,
+    ...v1.text.playlistTileMeta,
     marginTop: 2,
   },
 
@@ -560,11 +575,7 @@ const styles = StyleSheet.create({
     borderTopColor: v1.rule,
   },
   seasonsLabel: {
-    fontFamily: v1.fonts.sansBold,
-    fontSize: 11,
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-    color: v1.muted,
+    ...v1.text.seasonsLabel,
   },
   seasonRow: {
     flexDirection: "row",
@@ -584,25 +595,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   seasonIconLetter: {
-    fontFamily: v1.fonts.serifMediumItalic,
-    fontSize: 18,
-    color: "#fff",
+    ...v1.text.seasonIconLetter,
   },
   seasonName: {
-    fontFamily: v1.fonts.sansSemi,
-    fontSize: 15,
-    color: v1.ink,
+    ...v1.text.seasonName,
   },
   seasonStatus: {
-    fontFamily: v1.fonts.sansMedium,
-    fontSize: 11,
-    color: v1.muted,
+    ...v1.text.seasonStatus,
     marginTop: 2,
   },
   seasonArrow: {
-    fontFamily: v1.fonts.serifItalic,
-    fontSize: 18,
-    color: v1.faint,
+    ...v1.text.seasonArrow,
   },
 
   // Bottom chrome

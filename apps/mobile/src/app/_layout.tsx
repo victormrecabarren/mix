@@ -22,7 +22,14 @@ import { SoundCloudPlayerProvider } from "@/playback/SoundCloudWebPlayer";
 import { PlaybackProvider } from "@/playback/PlaybackContext";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
 
-// TEMP: default route override for UI experimentation. To rip out, set to null.
+// TEMP: route override for UI experimentation. While set, every load is
+// redirected into the `ui-preview` design playground regardless of auth.
+//
+// To unwire (next PR rewires the new screens onto real services):
+//   1. Set this constant to `null` — the original AuthGate logic resumes.
+//   2. Delete the `apps/mobile/src/app/ui-preview/` folder.
+//   3. Remove the `<Stack.Screen name="ui-preview" />` entry below.
+//   4. Remove the `inPreview` checks in the redirect block in this file.
 const PREVIEW_DEFAULT: string | null = "/ui-preview";
 
 function AuthGate({ children }: { children: React.ReactNode }) {

@@ -78,14 +78,10 @@ const styles = StyleSheet.create({
   },
   meta: { flex: 1, minWidth: 0 },
   title: {
-    fontFamily: v1.fonts.sansSemi,
-    fontSize: 14,
-    color: v1.ink,
+    ...v1.text.nowPlayingTitle,
   },
   artist: {
-    fontFamily: v1.fonts.sansMedium,
-    fontSize: 12,
-    color: v1.muted,
+    ...v1.text.nowPlayingArtist,
     marginTop: 1,
   },
   iconBtn: {

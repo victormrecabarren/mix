@@ -120,9 +120,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(176,42,42,0.10)",
   },
   label: {
-    fontFamily: v1.fonts.sansSemi,
-    fontSize: 10,
-    letterSpacing: 0.2,
+    ...v1.text.tabLabel,
     marginTop: 1,
   },
 });

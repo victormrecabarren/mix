@@ -32,6 +32,7 @@
     "expo-router": "~6.0.23",
     "expo-secure-store": "~14.2.0",
     "expo-status-bar": "~3.0.9",
+    "expo-video": "~3.0.16",
     "expo-web-browser": "~15.0.10",
     "native-zoom": "file:./modules/native-zoom",
     "react": "19.1.0",

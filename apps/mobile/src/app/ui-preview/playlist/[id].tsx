@@ -13,9 +13,45 @@ import {
   View,
 } from "react-native";
 import { Image } from "expo-image";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { imageForKey, toneForKey } from "../_images";
+import { videoForKey } from "../_videos";
 import { v1 } from "../_tokens";
+
+// Video hero layer — factored out so the useVideoPlayer hook is only
+// mounted when a video is actually registered for this round. Loops muted
+// without native controls, matching Apple Music's Motion Artwork pattern.
+//
+// The offsets + 93% sizing below are visual tuning for the current draft
+// disco-balloon MP4 whose focal isn't perfectly centered. When videos are
+// re-authored to the same focal-zone rule as the still images, reset to
+// `{ width: "100%", height: "100%" }` and remove the transform.
+const HERO_VIDEO_OFFSET_X = 13;
+const HERO_VIDEO_OFFSET_Y = 25;
+
+function HeroVideoLayer({ source }: { source: number }) {
+  const player = useVideoPlayer(source, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+  return (
+    <VideoView
+      player={player}
+      style={{
+        width: "93%",
+        height: "93%",
+        transform: [
+          { translateX: HERO_VIDEO_OFFSET_X },
+          { translateY: HERO_VIDEO_OFFSET_Y },
+        ],
+      }}
+      contentFit="cover"
+      nativeControls={false}
+    />
+  );
+}
 
 // Mock track list — replace with real round submissions when we wire services.
 const TRACKS = [
@@ -46,6 +82,7 @@ export default function PlaylistDetail() {
   const meta = params.meta ?? "Updated today";
   const description = params.description ?? "";
   const image = imageForKey(params.imageKey);
+  const video = videoForKey(params.imageKey);
   const tone = toneForKey(params.imageKey);
 
   const heroHeight = screenHeight * 0.66;
@@ -88,8 +125,15 @@ export default function PlaylistDetail() {
             </View>
           </>
         ) : null}
-        {/* Bottom gradient tail — faked with a single dark View for now. */}
-        <View style={styles.heroGradientTail} pointerEvents="none" />
+        {/* Optional video overlay — if a video is registered for this
+            round, it plays on top of the still image. The still stays
+            behind as a first-frame poster so the zoom transition still
+            has something to land on before playback starts. */}
+        {video != null && (
+          <View style={StyleSheet.absoluteFillObject}>
+            <HeroVideoLayer source={video} />
+          </View>
+        )}
       </View>
 
       {/* ── Top chrome over the hero ── */}
@@ -115,7 +159,7 @@ export default function PlaylistDetail() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: heroHeight - 60 }, // overlap the bottom of the hero
+          { paddingTop: heroHeight - 206 }, // overlap the bottom of the hero
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -229,10 +273,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   circleBtnGlyph: {
-    fontSize: 24,
-    color: v1.ink,
+    ...v1.text.detailChromeGlyph,
     marginTop: -2,
-    fontFamily: v1.fonts.sansSemi,
   },
   topActions: { flexDirection: "row" },
   actionPill: {
@@ -245,10 +287,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.92)",
   },
   actionPillGlyph: {
-    fontSize: 20,
-    color: v1.ink,
-    lineHeight: 22,
-    fontFamily: v1.fonts.sansMedium,
+    ...v1.text.detailActionPillGlyph,
   },
   actionPillDivider: {
     width: StyleSheet.hairlineWidth,
@@ -256,10 +295,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(11,11,11,0.15)",
   },
   actionPillDots: {
-    fontSize: 18,
-    color: v1.ink,
+    ...v1.text.detailActionPillDots,
     marginTop: -8,
-    fontFamily: v1.fonts.sansSemi,
   },
 
   // Scroll
@@ -273,45 +310,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 24,
     gap: 4,
-    marginBottom: 18,
+    marginBottom: 0,
   },
   title: {
-    fontFamily: v1.fonts.serifMediumItalic,
-    fontSize: 28,
-    lineHeight: 32,
-    letterSpacing: -0.4,
-    color: "#fff",
-    textAlign: "center",
-    textShadowColor: "rgba(0,0,0,0.35)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 8,
+    ...v1.text.detailTitle,
   },
   subtitle: {
-    fontFamily: v1.fonts.sansSemi,
-    fontSize: 15,
-    color: "rgba(255,255,255,0.9)",
-    textAlign: "center",
-    textShadowColor: "rgba(0,0,0,0.35)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 6,
+    ...v1.text.detailSubtitle,
   },
   meta: {
-    fontFamily: v1.fonts.sansMedium,
-    fontSize: 12,
-    color: "rgba(255,255,255,0.78)",
-    textAlign: "center",
+    ...v1.text.detailMeta,
     marginTop: 2,
-    textShadowColor: "rgba(0,0,0,0.35)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 6,
   },
 
   // Buttons
   buttonRow: {
     flexDirection: "row",
     gap: 10,
-    paddingHorizontal: 20,
-    marginBottom: 22,
+    paddingHorizontal: 32,
+    marginBottom: 14,
+    marginTop: 14,
   },
   actionBtn: {
     flex: 1,
@@ -320,15 +338,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: 26,
   },
   actionBtnBg: {
-    backgroundColor: "rgba(11,11,11,0.35)",
+    backgroundColor: "rgba(141, 1, 73, 0.35)",
   },
   actionBtnLabel: {
-    fontFamily: v1.fonts.sansSemi,
-    fontSize: 15,
-    color: "#fff",
+    ...v1.text.detailActionButtonLabel,
   },
   playTriangle: {
     width: 0,
@@ -342,18 +358,13 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   shuffleGlyph: {
-    fontSize: 18,
-    color: "#fff",
-    fontFamily: v1.fonts.sansBold,
+    ...v1.text.detailShuffleGlyph,
   },
 
   // Description
   description: {
+    ...v1.text.detailDescription,
     paddingHorizontal: 24,
-    fontFamily: v1.fonts.sansMedium,
-    fontSize: 13,
-    lineHeight: 19,
-    color: v1.muted,
     marginBottom: 22,
   },
 
@@ -378,20 +389,14 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   trackTitle: {
-    fontFamily: v1.fonts.sansSemi,
-    fontSize: 15,
-    color: v1.ink,
+    ...v1.text.trackTitle,
   },
   trackArtist: {
-    fontFamily: v1.fonts.sansMedium,
-    fontSize: 12,
-    color: v1.muted,
+    ...v1.text.trackArtist,
     marginTop: 1,
   },
   trackMore: {
-    fontFamily: v1.fonts.sansBold,
-    fontSize: 16,
-    color: v1.muted,
+    ...v1.text.trackMore,
     width: 20,
     textAlign: "right",
   },
