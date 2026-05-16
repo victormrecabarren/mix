@@ -18,12 +18,16 @@ export async function getUserDisplayName(
   return data?.display_name ?? null;
 }
 
-export async function getMyLeagues(): Promise<UserLeagueSummary[]> {
-  // league_members is already RLS-scoped to the current user, so no explicit
-  // user_id filter is needed here.
+export async function getMyLeagues(
+  userId: string,
+): Promise<UserLeagueSummary[]> {
+  // Must filter by user_id — league_members RLS lets a caller read every
+  // member of every league they belong to, so an unfiltered query returns
+  // duplicate league rows (one per co-member).
   const { data, error } = await supabase
     .from("league_members")
-    .select("league:leagues(id, name)");
+    .select("league:leagues(id, name)")
+    .eq("user_id", userId);
   if (error) throw postgresToMixError(error);
   return (data ?? [])
     .map((r) => r.league as UserLeagueSummary | null)
