@@ -13,7 +13,11 @@
     "test:join": "node scripts/test.mjs join",
     "test:advance": "node scripts/test.mjs advance",
     "test:submit": "node scripts/test.mjs submit",
-    "test:vote": "node scripts/test.mjs vote"
+    "test:vote": "node scripts/test.mjs vote",
+    "android": "pnpm --filter @mix/mobile android",
+    "ios": "pnpm --filter @mix/mobile ios",
+    "ios:sim": "pnpm --filter @mix/mobile ios:sim",
+    "setup": "pnpm --filter @mix/mobile setup"
   },
   "devDependencies": {
     "turbo": "^2.5.3"
@@ -22,5 +26,6 @@
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
   },
-  "packageManager": "pnpm@10.17.0"
+  "packageManager": "pnpm@10.17.0",
+  "version": "1.0.0"
 }
