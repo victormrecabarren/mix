@@ -10,8 +10,10 @@
     "lint": "eslint src --ext .ts,.tsx",
     "type-check": "tsc --noEmit",
     "prebuild": "expo prebuild --clean",
+    "setup": "pnpm install && pnpm prebuild",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "ios:sim": "expo run:ios --simulator \"iPhone 17 Pro Max\""
   },
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.4.1",
