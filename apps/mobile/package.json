@@ -13,7 +13,7 @@
     "setup": "pnpm prebuild",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "ios:sim": "expo run:ios --simulator \"iPhone 17 Pro Max\""
+    "ios:sim": "expo run:ios"
   },
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.4.1",
