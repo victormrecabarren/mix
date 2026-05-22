@@ -45,3 +45,10 @@ yarn-debug.log*
 yarn-error.log*
 .turbo/
 CLAUDE.local.md
+
+# Guard against expo accidentally scaffolding at repo root instead of apps/mobile
+/app.json
+/ios/
+/android/
+/tsconfig.json
+/package-lock.json

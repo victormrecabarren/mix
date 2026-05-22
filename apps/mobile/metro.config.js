@@ -16,6 +16,9 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
+// Follow pnpm symlinks
+config.resolver.unstable_enableSymlinks = true;
+
 // Use a shared metro cache
 config.cacheStores = [
   new FileStore({ root: path.join(projectRoot, 'node_modules', '.cache', 'metro') }),
