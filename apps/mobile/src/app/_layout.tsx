@@ -17,20 +17,22 @@ import {
 } from "@expo-google-fonts/inter-tight";
 import { SessionProvider, useSession } from "@/context/SessionContext";
 import { LeagueProvider } from "@/context/LeagueContext";
-import { SpotifyPlayerProvider, useSpotifyPlayer } from "@/playback/SpotifyWebPlayer";
+import {
+  SpotifyPlayerProvider,
+  useSpotifyPlayer,
+} from "@/playback/SpotifyWebPlayer";
 import { SoundCloudPlayerProvider } from "@/playback/SoundCloudWebPlayer";
 import { PlaybackProvider } from "@/playback/PlaybackContext";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
 
-// TEMP: route override for UI experimentation. While set, every load is
-// redirected into the `ui-preview` design playground regardless of auth.
-//
-// To unwire (next PR rewires the new screens onto real services):
-//   1. Set this constant to `null` — the original AuthGate logic resumes.
-//   2. Delete the `apps/mobile/src/app/ui-preview/` folder.
-//   3. Remove the `<Stack.Screen name="ui-preview" />` entry below.
-//   4. Remove the `inPreview` checks in the redirect block in this file.
-const PREVIEW_DEFAULT: string | null = "/ui-preview";
+// UI preview design playground — kept for style/state experimentation.
+// Navigate to it via the [DEV] button in the Profile tab.
+// To permanently remove:
+//   1. Delete `apps/mobile/src/app/ui-preview/`
+//   2. Remove the `<Stack.Screen name="ui-preview" />` entry below
+//   3. Remove the `inPreview` check in the redirect block in this file
+//   4. Remove the [DEV] UI Preview button from ProfileTabScreen
+const PREVIEW_DEFAULT: string | null = null;
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { session, loading } = useSession();
@@ -55,6 +57,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     const inPreview = segments[0] === "ui-preview";
 
     // TEMP: while PREVIEW_DEFAULT is set, route all traffic into the preview.
+    // TODO: remove this once the MVP tasks are completed and ready for production
     if (PREVIEW_DEFAULT && !inPreview && !inAuthCallback) {
       router.replace(PREVIEW_DEFAULT as never);
       return;
@@ -91,20 +94,22 @@ export default function RootLayout() {
       <SessionProvider>
         <SpotifyPlayerProvider>
           <SoundCloudPlayerProvider>
-          <PlaybackProvider>
-          <LeagueProvider>
-          <AuthGate>
-            <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
-              <Stack.Screen name="(auth)/index" />
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="auth/callback" />
-              <Stack.Screen name="join/index" />
-              {/* TEMP: preview routes for UI experiments. Delete when done. */}
-              <Stack.Screen name="ui-preview" />
-            </Stack>
-          </AuthGate>
-          </LeagueProvider>
-          </PlaybackProvider>
+            <PlaybackProvider>
+              <LeagueProvider>
+                <AuthGate>
+                  <Stack
+                    screenOptions={{ headerShown: false, animation: "fade" }}
+                  >
+                    <Stack.Screen name="(auth)/index" />
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="auth/callback" />
+                    <Stack.Screen name="join/index" />
+                    {/* TEMP: preview routes for UI experiments. Delete when done. */}
+                    <Stack.Screen name="ui-preview" />
+                  </Stack>
+                </AuthGate>
+              </LeagueProvider>
+            </PlaybackProvider>
           </SoundCloudPlayerProvider>
         </SpotifyPlayerProvider>
       </SessionProvider>

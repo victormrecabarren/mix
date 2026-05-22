@@ -23,7 +23,6 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { useRouter, useFocusEffect } from "expo-router";
-import { supabase } from "@/lib/supabase";
 import { useSession } from "@/context/SessionContext";
 import { useRoundSubmissions } from "@/queries/useRoundSubmissions";
 import { useMyVotes } from "@/queries/useMyVotes";
@@ -45,6 +44,15 @@ import {
   getSpotifyTrack,
   extractSpotifyTrackId,
 } from "@/services/spotifySearch";
+import { THEME } from "@/ui/theme";
+import { PageHeader } from "@/ui/PageHeader";
+import { HeroBanner } from "@/ui/cards/HeroBanner";
+import { TrackList, type TrackListItem } from "@/ui/sections/TrackList";
+import { useTabBarBottomInset } from "@/ui/hooks/useTabBarBottomInset";
+import { derivePhase, formatPhaseCountdown } from "@/lib/utils/phase";
+import { roundCoverKey } from "@/lib/utils/coverKey";
+import { usePlayback, type PlaylistTrack } from "@/playback/PlaybackContext";
+import { normalizeSpotifyTrackUri } from "@/lib/spotifyTrackUri";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,15 +93,6 @@ type Submission = {
   comment: string | null;
 };
 
-type Comment = {
-  id: string;
-  submission_id: string;
-  body: string;
-  author_user_id: string;
-  author_name: string;
-  created_at: string;
-};
-
 type SpotifyTrack = {
   id: string;
   name: string;
@@ -114,25 +113,7 @@ type DraftSubmission = {
   isEditingTrack: boolean;
 };
 
-type Phase = "submissions" | "voting" | "results" | "upcoming";
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getPhase(round: Round, prevRound: SiblingRound | null): Phase {
-  const now = Date.now();
-  const sub = new Date(round.submission_deadline_at).getTime();
-  const vote = new Date(round.voting_deadline_at).getTime();
-
-  if (now >= vote) return "results";
-  if (now >= sub) return "voting";
-
-  // In submission window — previous round must be fully complete first
-  if (prevRound && now < new Date(prevRound.voting_deadline_at).getTime()) {
-    return "upcoming";
-  }
-
-  return "submissions";
-}
 
 function formatDeadline(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -182,7 +163,78 @@ function comparableDraft(draft: DraftSubmission) {
   };
 }
 
-// ─── Track row ────────────────────────────────────────────────────────────────
+// Submission rows are spotify-only today. Once SoundCloud is wired into the
+// data model we'll dispatch on the URI source here.
+// TODO: redesign in v2 — support multi-source submissions.
+function submissionToPlaylistTrack(s: Submission): PlaylistTrack | null {
+  if (!s.spotify_track_id) return null;
+  return {
+    id: s.id,
+    source: "spotify",
+    uri: normalizeSpotifyTrackUri(s.spotify_track_id),
+    title: s.track_title,
+    artist: s.track_artist,
+    artworkUrl: s.track_artwork_url ?? "",
+    durationMs: 0,
+  };
+}
+
+function shuffled<T>(arr: T[]): T[] {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// ─── Themed Button ────────────────────────────────────────────────────────────
+
+function ThemedButton({
+  label,
+  onPress,
+  variant = "primary",
+  disabled,
+  loading,
+}: {
+  label: string;
+  onPress: () => void;
+  variant?: "primary" | "secondary" | "danger";
+  disabled?: boolean;
+  loading?: boolean;
+}) {
+  const palette = {
+    primary: { bg: THEME.ink, fg: "#fff" },
+    secondary: { bg: "transparent", fg: THEME.ink },
+    danger: { bg: "transparent", fg: THEME.accent },
+  }[variant];
+  const borderStyle =
+    variant === "primary"
+      ? null
+      : { borderWidth: StyleSheet.hairlineWidth, borderColor: THEME.rule };
+  return (
+    <TouchableOpacity
+      style={[
+        styles.themedBtn,
+        { backgroundColor: palette.bg },
+        borderStyle,
+        disabled && { opacity: 0.4 },
+      ]}
+      onPress={onPress}
+      disabled={disabled || loading}
+    >
+      {loading ? (
+        <ActivityIndicator color={palette.fg} />
+      ) : (
+        <Text style={[styles.themedBtnText, { color: palette.fg }]}>
+          {label}
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ─── Track row (submission / voting phases) ───────────────────────────────────
 
 function TrackRow({
   title,
@@ -233,6 +285,7 @@ function TrackRow({
 }
 
 // ─── Submission phase ─────────────────────────────────────────────────────────
+// TODO: redesign in v2 — submission slot / search row layout.
 
 function SubmissionPhase({
   round,
@@ -488,7 +541,7 @@ function SubmissionPhase({
                     <TextInput
                       style={styles.inlineSearchInput}
                       placeholder="Search, or paste link"
-                      placeholderTextColor="#555"
+                      placeholderTextColor={THEME.faint}
                       value={draft.searchInput}
                       onChangeText={(value) => updateSearchInput(index, value)}
                       autoCapitalize="none"
@@ -507,7 +560,7 @@ function SubmissionPhase({
               </View>
               {draft.isSearching && (
                 <View style={styles.searchLoadingRow}>
-                  <ActivityIndicator color="#888" size="small" />
+                  <ActivityIndicator color={THEME.muted} size="small" />
                 </View>
               )}
               {draft.searchResults.map((track) => (
@@ -540,7 +593,7 @@ function SubmissionPhase({
             value={draft.comment}
             onChangeText={(comment) => updateComment(index, comment)}
             placeholder="Add optional comment for this track..."
-            placeholderTextColor="#555"
+            placeholderTextColor={THEME.faint}
             multiline
             textAlignVertical="top"
           />
@@ -552,28 +605,20 @@ function SubmissionPhase({
         {formatDeadline(round.submission_deadline_at)}
       </Text>
 
-      <TouchableOpacity
-        style={[styles.submitTrackBtn, !canSubmit && { opacity: 0.4 }]}
+      <ThemedButton
+        label={mySubmissions.length > 0 ? "Save Changes" : "Submit Selections"}
         onPress={submitDrafts}
         disabled={!canSubmit}
-      >
-        {submitting ? (
-          <ActivityIndicator color="#000" />
-        ) : (
-          <Text style={styles.submitTrackBtnText}>
-            {mySubmissions.length > 0 ? "Save Changes" : "Submit Selections"}
-          </Text>
-        )}
-      </TouchableOpacity>
+        loading={submitting}
+      />
 
-          <TouchableOpacity style={styles.secondaryActionBtn} onPress={() => router.back()}>
-        <Text style={styles.secondaryActionBtnText}>Back</Text>
-      </TouchableOpacity>
+      <ThemedButton label="Back" onPress={() => router.back()} variant="secondary" />
     </View>
   );
 }
 
 // ─── Voting phase ─────────────────────────────────────────────────────────────
+// TODO: redesign in v2 — vote stepper / submission card layout.
 
 function VotingPhase({
   round,
@@ -608,14 +653,12 @@ function VotingPhase({
   const alreadyVoted = Object.keys(myVotes).length > 0;
   const showSubmittedView = alreadyVoted || justSubmitted;
 
-  // Freeze the submission order the first time we enter the submitted view,
-  // so the list animates from its current order into the ranked order.
   const sortedSubmissions = useMemo(() => {
     if (!showSubmittedView) return submissions;
     return [...submissions].sort((a, b) => {
       const aOwn = a.user_id === userId ? 1 : 0;
       const bOwn = b.user_id === userId ? 1 : 0;
-      if (aOwn !== bOwn) return aOwn - bOwn; // own track to bottom
+      if (aOwn !== bOwn) return aOwn - bOwn;
       const aPts = allocation[a.id] ?? 0;
       const bPts = allocation[b.id] ?? 0;
       return bPts - aPts;
@@ -665,15 +708,15 @@ function VotingPhase({
     return (
       <View style={styles.phaseCard}>
         <View style={styles.spectatorCard}>
-          <Text style={styles.spectatorCardTitle}>You're spectating</Text>
+          <Text style={styles.spectatorCardTitle}>You&apos;re spectating</Text>
           <Text style={styles.spectatorCardBody}>
             Sit back — participants are voting on their submissions. Results will show when voting closes.
           </Text>
         </View>
         {submissions.map((sub) => (
-          <View key={sub.id} style={[styles.submissionVoteCard, { opacity: 0.4 }]}>
+          <View key={sub.id} style={[styles.submissionVoteCard, { opacity: 0.5 }]}>
             <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
-            {!!sub.comment && <Text style={styles.submissionComment}>"{sub.comment}"</Text>}
+            {!!sub.comment && <Text style={styles.submissionComment}>&ldquo;{sub.comment}&rdquo;</Text>}
           </View>
         ))}
       </View>
@@ -686,13 +729,13 @@ function VotingPhase({
         <View style={styles.ineligibleBanner}>
           <Text style={styles.ineligibleTitle}>Not eligible this round</Text>
           <Text style={styles.ineligibleSub}>
-            You didn't submit a track before the deadline. You can see the submissions but can't vote.
+            You didn&apos;t submit a track before the deadline. You can see the submissions but can&apos;t vote.
           </Text>
         </View>
         {submissions.map((sub) => (
-          <View key={sub.id} style={[styles.submissionVoteCard, { opacity: 0.45 }]}>
+          <View key={sub.id} style={[styles.submissionVoteCard, { opacity: 0.5 }]}>
             <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
-            {!!sub.comment && <Text style={styles.submissionComment}>"{sub.comment}"</Text>}
+            {!!sub.comment && <Text style={styles.submissionComment}>&ldquo;{sub.comment}&rdquo;</Text>}
           </View>
         ))}
       </View>
@@ -710,7 +753,7 @@ function VotingPhase({
         </View>
       ) : (
         <View style={styles.pointsBar}>
-          <Text style={[styles.pointsRemaining, remaining === 0 && { color: '#1DB954' }]}>
+          <Text style={[styles.pointsRemaining, remaining === 0 && { color: THEME.accent }]}>
             {remaining}
           </Text>
           <Text style={styles.mutedHint}> / {pointsTotal} pts remaining · max {maxPerTrack} per track</Text>
@@ -736,7 +779,7 @@ function VotingPhase({
             ]}
           >
             <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
-            {!!sub.comment && <Text style={styles.submissionComment}>"{sub.comment}"</Text>}
+            {!!sub.comment && <Text style={styles.submissionComment}>&ldquo;{sub.comment}&rdquo;</Text>}
 
             {isOwn ? (
               <Text style={styles.ownTrackLabel}>YOUR TRACK</Text>
@@ -772,7 +815,7 @@ function VotingPhase({
                 value={commentInputs[sub.id] ?? ''}
                 onChangeText={(v) => setCommentInputs((prev) => ({ ...prev, [sub.id]: v }))}
                 placeholder="Leave a comment… (optional)"
-                placeholderTextColor="#444"
+                placeholderTextColor={THEME.faint}
                 multiline
               />
             )}
@@ -781,15 +824,12 @@ function VotingPhase({
       })}
 
       {!showSubmittedView && (
-        <TouchableOpacity
-          style={[styles.submitVoteBtn, (submitting || remaining > 0) && { opacity: 0.4 }]}
+        <ThemedButton
+          label="Submit Votes"
           onPress={submitVotes}
           disabled={submitting || remaining > 0}
-        >
-          {submitting
-            ? <ActivityIndicator color="#000" />
-            : <Text style={styles.submitVoteBtnText}>Submit Votes</Text>}
-        </TouchableOpacity>
+          loading={submitting}
+        />
       )}
     </View>
   );
@@ -797,107 +837,46 @@ function VotingPhase({
 
 // ─── Results phase ────────────────────────────────────────────────────────────
 
-type VoterEntry = {
-  voter_user_id: string;
-  voter_name: string;
-  points: number;
-  comment: string | null;
-};
-
-const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
-const PLACE_LABELS = ['1ST', '2ND', '3RD'];
-
-function SubmitterBadge({ name, color, size = 22 }: { name: string; color?: string; size?: number }) {
-  return (
-    <View style={styles.submitterBadge}>
-      <View
-        style={[
-          styles.submitterAvatar,
-          { width: size, height: size, borderRadius: size / 2 },
-          color ? { backgroundColor: color + '33', borderColor: color + '88' } : null,
-        ]}
-      >
-        <Text style={[styles.submitterAvatarText, { fontSize: size * 0.42 }, color ? { color } : null]}>
-          {name[0]?.toUpperCase() ?? '?'}
-        </Text>
-      </View>
-      <Text style={[styles.submitterName, color ? { color } : null]} numberOfLines={1}>
-        {name}
-      </Text>
-    </View>
-  );
-}
-
-function PodiumColumn({
-  rank,
-  submitterName,
-  points,
+function ResultsPhase({
+  round,
+  submissions,
+  leagueName,
+  totalRounds,
+  onBack,
 }: {
-  rank: number;
-  submitterName: string;
-  points: number;
+  round: Round;
+  submissions: Submission[];
+  leagueName: string | undefined;
+  totalRounds: number;
+  onBack: () => void;
 }) {
-  const color = MEDAL_COLORS[rank];
-  const isWinner = rank === 0;
-  const avatarSize = isWinner ? 56 : 44;
-  return (
-    <View style={[styles.podiumCol, isWinner && styles.podiumColWinner]}>
-      <View
-        style={[
-          styles.podiumAvatar,
-          {
-            width: avatarSize,
-            height: avatarSize,
-            borderRadius: avatarSize / 2,
-            borderColor: color,
-            backgroundColor: color + '22',
-          },
-        ]}
-      >
-        <Text style={[styles.podiumAvatarText, { color, fontSize: avatarSize * 0.4 }]}>
-          {submitterName[0]?.toUpperCase() ?? '?'}
-        </Text>
-      </View>
-      <Text style={[styles.podiumPlace, { color }]}>{PLACE_LABELS[rank]}</Text>
-      <Text style={styles.podiumColName} numberOfLines={1}>{submitterName}</Text>
-      <View style={styles.podiumScoreRow}>
-        <Text style={[styles.podiumScore, { color }, isWinner && { fontSize: 22 }]}>{points}</Text>
-        <Text style={styles.podiumScoreLabel}>pts</Text>
-      </View>
-    </View>
-  );
-}
-
-type RoundResultRow = {
-  submission_id: string;
-  user_id: string;
-  display_name: string;
-  track_title: string;
-  track_artist: string;
-  track_artwork_url: string | null;
-  spotify_track_id: string | null;
-  track_isrc: string;
-  points_raw: number;
-  points_effective: number;
-  is_void: boolean;
-};
-
-function ResultsPhase({ submissions, roundId }: { submissions: Submission[]; roundId: string }) {
-  const resultsQuery = useRoundResults(roundId);
-  const votersQuery = useRoundVoters(roundId);
+  const resultsQuery = useRoundResults(round.id);
+  const votersQuery = useRoundVoters(round.id);
   const results = resultsQuery.data ?? [];
   const votersBySubmission = votersQuery.data ?? {};
   const loading = resultsQuery.isPending || votersQuery.isPending;
   const loadError =
     resultsQuery.error instanceof Error ? resultsQuery.error.message : null;
 
+  const playback = usePlayback();
+  void totalRounds;
+
   const submissionCommentById = useMemo(() => {
     const map: Record<string, string | null> = {};
-    submissions.forEach((s) => { map[s.id] = s.comment; });
+    submissions.forEach((s) => {
+      map[s.id] = s.comment;
+    });
     return map;
   }, [submissions]);
 
-  // Sort defensively so ranking never depends on RPC row order.
+  const submissionById = useMemo(() => {
+    const map: Record<string, Submission> = {};
+    submissions.forEach((s) => {
+      map[s.id] = s;
+    });
+    return map;
+  }, [submissions]);
+
   const eligible = useMemo(
     () =>
       results
@@ -922,11 +901,53 @@ function ResultsPhase({ submissions, roundId }: { submissions: Submission[]; rou
     [results],
   );
 
-  if (loading) return <ActivityIndicator color="#555" style={{ marginTop: 24 }} />;
+  // Build the TrackList from the ranked submissions.
+  const trackItems: TrackListItem[] = useMemo(
+    () =>
+      eligible.map((row, i) => ({
+        id: row.submission_id,
+        title: row.track_title,
+        artist: row.track_artist,
+        artworkUrl: row.track_artwork_url ?? undefined,
+        submitterName: row.display_name,
+        points: row.points_effective,
+        rank: i + 1,
+        comment: submissionCommentById[row.submission_id] ?? undefined,
+      })),
+    [eligible, submissionCommentById],
+  );
+
+  // Convert the ranked submissions into a playlist for the play/shuffle CTAs.
+  const orderedPlaylist: PlaylistTrack[] = useMemo(
+    () =>
+      eligible
+        .map((row) => submissionById[row.submission_id])
+        .filter((s): s is Submission => !!s)
+        .map(submissionToPlaylistTrack)
+        .filter((t): t is PlaylistTrack => t !== null),
+    [eligible, submissionById],
+  );
+
+  const onPlay = () => {
+    if (orderedPlaylist.length === 0) return;
+    playback.setPlaylist(orderedPlaylist);
+    // setPlaylist is React state; play on the next tick.
+    setTimeout(() => playback.playTrack(0), 0);
+  };
+
+  const onShuffle = () => {
+    if (orderedPlaylist.length === 0) return;
+    playback.setPlaylist(shuffled(orderedPlaylist));
+    setTimeout(() => playback.playTrack(0), 0);
+  };
+
+  if (loading) {
+    return <ActivityIndicator color={THEME.muted} style={{ marginTop: 24 }} />;
+  }
 
   if (loadError) {
     return (
-      <View style={{ gap: 10 }}>
+      <View style={{ gap: 10, paddingHorizontal: 24 }}>
         <Text style={styles.phaseLabel}>RESULTS</Text>
         <Text style={styles.mutedHint}>{loadError}</Text>
       </View>
@@ -935,86 +956,49 @@ function ResultsPhase({ submissions, roundId }: { submissions: Submission[]; rou
 
   if (results.length === 0) {
     return (
-      <View style={{ gap: 10 }}>
+      <View style={{ gap: 10, paddingHorizontal: 24 }}>
         <Text style={styles.phaseLabel}>RESULTS</Text>
         <Text style={styles.mutedHint}>No submissions recorded.</Text>
       </View>
     );
   }
 
-  const podium = eligible.slice(0, 3);
-  const winnerName = podium[0]?.display_name ?? null;
+  const seasonName = round.seasons?.name ?? "";
+  const subtitle = leagueName
+    ? `${leagueName} · ${seasonName}`
+    : seasonName;
+  const meta = `Round ${round.round_number} · ${submissions.length} submission${
+    submissions.length === 1 ? "" : "s"
+  }`;
 
   return (
-    <View style={{ gap: 14 }}>
-      {/* Congratulatory header */}
-      <View style={styles.resultsHero}>
-        <Text style={styles.resultsHeroEyebrow}>ROUND COMPLETE</Text>
-        <Text style={styles.resultsHeroTitle}>
-          {winnerName ? `Congrats, ${winnerName}!` : 'No winner this round'}
-        </Text>
-        <Text style={styles.resultsHeroSub}>
-          {eligible.length === 0
-            ? 'Everyone forfeited — no eligible entries.'
-            : eligible.length === 1
-              ? 'Only one eligible entry — an easy win.'
-              : "Here's how the round landed."}
-        </Text>
-      </View>
+    <View>
+      <HeroBanner
+        imageKey={roundCoverKey(round)}
+        videoKey={roundCoverKey(round)}
+        title={round.prompt}
+        subtitle={subtitle}
+        meta={meta}
+        ctas={{ play: onPlay, shuffle: onShuffle }}
+        onBack={onBack}
+      />
 
-      {/* Podium — classic 2-1-3 horizontal layout (forfeits excluded) */}
-      {podium.length > 0 && (
-        <View style={styles.podiumRow}>
-          {podium[1] && (
-            <PodiumColumn
-              rank={1}
-              submitterName={podium[1].display_name}
-              points={podium[1].points_effective}
-            />
-          )}
-          {podium[0] && (
-            <PodiumColumn
-              rank={0}
-              submitterName={podium[0].display_name}
-              points={podium[0].points_effective}
-            />
-          )}
-          {podium[2] && (
-            <PodiumColumn
-              rank={2}
-              submitterName={podium[2].display_name}
-              points={podium[2].points_effective}
-            />
-          )}
-        </View>
-      )}
+      <TrackList tracks={trackItems} />
 
-      {/* Full ranked list — eligible ranks 1..N, then forfeits */}
-      <Text style={styles.phaseLabel}>ALL ENTRIES</Text>
-      {eligible.map((row, i) => {
-        const voters = votersBySubmission[row.submission_id] ?? [];
-        const color = MEDAL_COLORS[i] ?? '#444';
-        const subComment = submissionCommentById[row.submission_id];
-        return (
-          <View
-            key={row.submission_id}
-            style={[styles.resultItem, i < 3 && { borderColor: color + '44' }]}
-          >
-            <View style={styles.rankCol}>
-              <Text style={[styles.rank, { color }]}>#{i + 1}</Text>
-            </View>
-
-            <View style={styles.resultContent}>
-              <SubmitterBadge name={row.display_name} color={i < 3 ? color : undefined} />
-              <TrackRow
-                title={row.track_title}
-                artist={row.track_artist}
-                artwork={row.track_artwork_url}
-                compact
-              />
-              {!!subComment && <Text style={styles.submissionComment}>"{subComment}"</Text>}
-
-              {voters.length > 0 && (
+      {/* ── Voters & comments ── */}
+      {/* TODO: redesign in v2 — voter thread layout. */}
+      {trackItems.length > 0 && (
+        <View style={styles.votersSection}>
+          <Text style={styles.sectionEyebrow}>VOTERS & COMMENTS</Text>
+          {eligible.map((row) => {
+            const voters = votersBySubmission[row.submission_id] ?? [];
+            if (voters.length === 0) return null;
+            return (
+              <View key={row.submission_id} style={styles.voterGroup}>
+                <Text style={styles.voterGroupTitle}>{row.track_title}</Text>
+                <Text style={styles.voterGroupSub}>
+                  {row.track_artist} · submitted by {row.display_name}
+                </Text>
                 <View style={styles.votersThread}>
                   {voters.map((entry, vi) => (
                     <View
@@ -1029,96 +1013,61 @@ function ResultsPhase({ submissions, roundId }: { submissions: Submission[]; rou
                             entry.points === 0 && styles.voterPointsZero,
                           ]}
                         >
-                          {entry.points > 0 ? `+${entry.points}` : '—'}
+                          {entry.points > 0 ? `+${entry.points}` : "—"}
                         </Text>
                       </View>
                       {!!entry.comment && (
-                        <Text style={styles.voterComment}>"{entry.comment}"</Text>
+                        <Text style={styles.voterComment}>
+                          &ldquo;{entry.comment}&rdquo;
+                        </Text>
                       )}
                     </View>
                   ))}
                 </View>
-              )}
-            </View>
-
-            <View style={styles.scoreCol}>
-              <Text style={[styles.resultScore, { color }]}>{row.points_effective}</Text>
-              <Text style={styles.resultScoreLabel}>pts</Text>
-            </View>
-          </View>
-        );
-      })}
-
-      {/* Forfeits — submitter didn't vote, so their points don't count */}
-      {forfeits.length > 0 && (
-        <>
-          <View style={styles.forfeitDividerRow}>
-            <View style={styles.forfeitDividerLine} />
-            <Text style={styles.forfeitDividerLabel}>FORFEITED ({forfeits.length})</Text>
-            <View style={styles.forfeitDividerLine} />
-          </View>
-          <Text style={styles.forfeitHelp}>
-            These players didn't vote, so points awarded to their tracks don't count toward the round or season total.
-          </Text>
-          {forfeits.map((row) => {
-            const voters = votersBySubmission[row.submission_id] ?? [];
-            const subComment = submissionCommentById[row.submission_id];
-            return (
-              <View key={row.submission_id} style={[styles.resultItem, styles.resultItemForfeit]}>
-                <View style={styles.rankCol}>
-                  <Text style={styles.rankForfeit}>—</Text>
-                </View>
-
-                <View style={styles.resultContent}>
-                  <View style={styles.forfeitHeaderRow}>
-                    <SubmitterBadge name={row.display_name} />
-                    <Text style={styles.forfeitBadge}>DIDN'T VOTE</Text>
-                  </View>
-                  <TrackRow
-                    title={row.track_title}
-                    artist={row.track_artist}
-                    artwork={row.track_artwork_url}
-                    compact
-                  />
-                  {!!subComment && <Text style={styles.submissionComment}>"{subComment}"</Text>}
-
-                  {voters.length > 0 && (
-                    <View style={styles.votersThread}>
-                      {voters.map((entry, vi) => (
-                        <View
-                          key={entry.voter_user_id}
-                          style={[styles.voterRow, vi > 0 && styles.voterRowBorder]}
-                        >
-                          <View style={styles.voterHeader}>
-                            <Text style={styles.voterName}>{entry.voter_name}</Text>
-                            <Text
-                              style={[
-                                styles.voterPoints,
-                                styles.voterPointsVoid,
-                              ]}
-                            >
-                              {entry.points > 0 ? `+${entry.points}` : '—'}
-                            </Text>
-                          </View>
-                          {!!entry.comment && (
-                            <Text style={styles.voterComment}>"{entry.comment}"</Text>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
-
-                <View style={styles.scoreCol}>
-                  <Text style={[styles.resultScore, styles.resultScoreVoid]}>
-                    {row.points_raw}
-                  </Text>
-                  <Text style={styles.resultScoreLabel}>pts</Text>
-                </View>
               </View>
             );
           })}
-        </>
+        </View>
+      )}
+
+      {/* ── Forfeits — submitter didn't vote ── */}
+      {/* TODO: redesign in v2 — forfeit section. */}
+      {forfeits.length > 0 && (
+        <View style={styles.forfeitSection}>
+          <View style={styles.forfeitDividerRow}>
+            <View style={styles.forfeitDividerLine} />
+            <Text style={styles.forfeitDividerLabel}>
+              FORFEITED ({forfeits.length})
+            </Text>
+            <View style={styles.forfeitDividerLine} />
+          </View>
+          <Text style={styles.forfeitHelp}>
+            These players didn&apos;t vote, so points awarded to their tracks
+            don&apos;t count toward the round or season total.
+          </Text>
+          {forfeits.map((row) => {
+            const subComment = submissionCommentById[row.submission_id];
+            return (
+              <View key={row.submission_id} style={styles.forfeitItem}>
+                <View style={styles.forfeitItemHead}>
+                  <Text style={styles.forfeitItemName}>{row.display_name}</Text>
+                  <Text style={styles.forfeitBadge}>DIDN&apos;T VOTE</Text>
+                </View>
+                <TrackRow
+                  title={row.track_title}
+                  artist={row.track_artist}
+                  artwork={row.track_artwork_url}
+                  compact
+                />
+                {!!subComment && (
+                  <Text style={styles.submissionComment}>
+                    &ldquo;{subComment}&rdquo;
+                  </Text>
+                )}
+              </View>
+            );
+          })}
+        </View>
       )}
     </View>
   );
@@ -1133,9 +1082,11 @@ export function RoundScreen({
   roundId: string;
   seasonId?: string;
 }) {
+  void seasonId;
   const router = useRouter();
   const { supabaseUserId } = useSession();
   const userId = supabaseUserId;
+  const bottomInset = useTabBarBottomInset();
 
   const { data: round, isLoading: roundLoading, refetch: refetchRound } =
     useRound(roundId);
@@ -1216,41 +1167,10 @@ export function RoundScreen({
     scrollViewRef.current?.scrollTo({ y: 0, animated: true });
   }, []);
 
-  if (roundLoading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator color="#555" />
-      </View>
-    );
-  }
-
-  if (!round) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.mutedHint}>Round not found.</Text>
-      </View>
-    );
-  }
-
-  const phase = getPhase(round, prevRound ?? null);
-  const mySubmissions = submissions.filter((s) => s.user_id === userId);
-
-  const phaseColor: Record<Phase, string> = {
-    submissions: "#1DB954",
-    voting: "#f0a500",
-    results: "#555",
-    upcoming: "#333",
-  };
-  const phaseLabel: Record<Phase, string> = {
-    submissions: "SUBMISSIONS OPEN",
-    voting: "VOTING OPEN",
-    results: "COMPLETED",
-    upcoming: "NOT STARTED YET",
-  };
-
   const forceEndRoundMutation = useForceEndRound();
 
-  const forceCloseVoting = () => {
+  const forceCloseVoting = useCallback(() => {
+    if (!round) return;
     Alert.alert(
       "Force end voting?",
       "This will immediately close the voting window and move the round to results.",
@@ -1275,118 +1195,189 @@ export function RoundScreen({
         },
       ],
     );
-  };
+  }, [forceEndRoundMutation, round]);
 
+  if (roundLoading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color={THEME.muted} />
+      </View>
+    );
+  }
+
+  if (!round) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.mutedHint}>Round not found.</Text>
+      </View>
+    );
+  }
+
+  const phase = derivePhase(round, prevRound ?? null);
+  const mySubmissions = submissions.filter((s) => s.user_id === userId);
+  const countdown = formatPhaseCountdown(round, prevRound ?? null);
+
+  // Results phase renders an edge-to-edge hero — skip PageHeader.
+  if (phase === "results") {
+    return (
+      <View style={{ flex: 1, backgroundColor: THEME.bg }}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={{ flex: 1, backgroundColor: THEME.bg }}
+          contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={THEME.accent}
+            />
+          }
+        >
+          {round.seasons?.status === "completed" &&
+            round.round_number === totalRounds && (
+              <TouchableOpacity
+                style={styles.seasonCompleteBanner}
+                onPress={() =>
+                  router.push({
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    pathname: "/(tabs)/(home)/season/[id]" as any,
+                    params: { id: round.season_id, initialTab: "standings" },
+                  })
+                }
+                activeOpacity={0.8}
+              >
+                <Text style={styles.seasonCompleteEmoji}>🏆</Text>
+                <View style={styles.seasonCompleteText}>
+                  <Text style={styles.seasonCompleteTitle}>Season complete!</Text>
+                  <Text style={styles.seasonCompleteSub}>
+                    See the final standings →
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+          <ResultsPhase
+            round={round}
+            submissions={submissions}
+            leagueName={league?.name}
+            totalRounds={totalRounds}
+            onBack={() => router.back()}
+          />
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // Non-results phases — cream page with PageHeader and the existing phase
+  // layouts restyled but otherwise untouched.
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#000" }}
+      style={{ flex: 1, backgroundColor: THEME.bg }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={88}
     >
       <ScrollView
         ref={scrollViewRef}
-        contentContainerStyle={styles.root}
-        style={{ flex: 1, backgroundColor: "#000" }}
+        style={{ flex: 1, backgroundColor: THEME.bg }}
+        contentContainerStyle={[
+          styles.root,
+          { paddingBottom: bottomInset + 24 },
+        ]}
         keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={THEME.accent}
+          />
+        }
       >
-      {phase === 'results' &&
-        round.seasons?.status === 'completed' &&
-        round.round_number === totalRounds && (
-        <TouchableOpacity
-          style={styles.seasonCompleteBanner}
-          onPress={() => router.push({
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            pathname: '/(tabs)/(home)/season/[id]' as any,
-            params: { id: round.season_id, initialTab: 'standings' },
-          })}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.seasonCompleteEmoji}>🏆</Text>
-          <View style={styles.seasonCompleteText}>
-            <Text style={styles.seasonCompleteTitle}>Season complete!</Text>
-            <Text style={styles.seasonCompleteSub}>See the final standings →</Text>
+        <PageHeader
+          leagueTag={league?.name}
+          title={`Round ${round.round_number}`}
+          trailing={
+            isCommissioner && phase === "voting" ? (
+              <TouchableOpacity
+                onPress={forceCloseVoting}
+                style={styles.headerActionBtn}
+              >
+                <Text style={styles.headerActionText}>Force end</Text>
+              </TouchableOpacity>
+            ) : undefined
+          }
+        />
+
+        <View style={styles.pagePad}>
+          <Text style={styles.phaseCountdown}>{countdown}</Text>
+
+          <View style={styles.promptCard}>
+            <Text style={styles.promptLabel}>PROMPT</Text>
+            <Text style={styles.promptText}>{round.prompt}</Text>
+            {round.description ? (
+              <Text style={styles.promptDescription}>{round.description}</Text>
+            ) : null}
           </View>
-        </TouchableOpacity>
-      )}
 
-      <View style={styles.roundMeta}>
-        <Text style={styles.roundTitle}>{round.prompt}</Text>
-        <Text style={[styles.phaseBadge, { color: phaseColor[phase] }]}>
-          {phaseLabel[phase]}
-        </Text>
-      </View>
-
-      <View style={styles.promptCard}>
-        <Text style={styles.promptLabel}>DESCRIPTION</Text>
-        <Text style={styles.promptText}>
-          {round.description || "No description provided."}
-        </Text>
-      </View>
-
-      <View style={styles.deadlines}>
-        <Text style={styles.deadlineItem}>
-          Subs close{" "}
-          <Text style={styles.deadlineValue}>
-            {formatDeadline(round.submission_deadline_at)}
-          </Text>
-        </Text>
-        <Text style={styles.deadlineItem}>
-          Votes close{" "}
-          <Text style={styles.deadlineValue}>
-            {formatDeadline(round.voting_deadline_at)}
-          </Text>
-        </Text>
-      </View>
-
-      {phase === "upcoming" && prevRound && (
-        <View style={styles.upcomingCard}>
-          <Text style={styles.upcomingText}>
-            Opens when "{prevRound.prompt}" closes on{" "}
-            {formatDeadline(prevRound.voting_deadline_at)}
-          </Text>
-        </View>
-      )}
-
-      {phase === "submissions" && userId && (
-        myRole === 'spectator' ? (
-          <View style={styles.spectatorPlaylistCard}>
-            <Text style={styles.spectatorPlaylistEmoji}>🎵</Text>
-            <Text style={styles.spectatorPlaylistTitle}>A playlist is forming</Text>
-            <Text style={styles.spectatorPlaylistBody}>
-              Participants are locking in their picks for "{round.prompt}". You'll be able to listen once submissions close.
+          <View style={styles.deadlines}>
+            <Text style={styles.deadlineItem}>
+              Subs close{" "}
+              <Text style={styles.deadlineValue}>
+                {formatDeadline(round.submission_deadline_at)}
+              </Text>
+            </Text>
+            <Text style={styles.deadlineItem}>
+              Votes close{" "}
+              <Text style={styles.deadlineValue}>
+                {formatDeadline(round.voting_deadline_at)}
+              </Text>
             </Text>
           </View>
-        ) : (
-          <SubmissionPhase
-            round={round}
-            userId={userId}
-            mySubmissions={mySubmissions}
-            onSubmitted={() => router.back()}
-          />
-        )
-      )}
 
-      {phase === "voting" && userId && (
-        <VotingPhase
-          round={round}
-          userId={userId}
-          submissions={submissions}
-          myVotes={myVotes}
-          didSubmit={mySubmissions.length > 0}
-          isSpectator={myRole === 'spectator'}
-          onVoted={refetchRound}
-          onScrollToTop={scrollToTop}
-        />
-      )}
+          {phase === "upcoming" && prevRound && (
+            <View style={styles.upcomingCard}>
+              <Text style={styles.upcomingText}>
+                Opens when &ldquo;{prevRound.prompt}&rdquo; closes on{" "}
+                {formatDeadline(prevRound.voting_deadline_at)}
+              </Text>
+            </View>
+          )}
 
-      {phase === "voting" && isCommissioner && (
-        <TouchableOpacity style={styles.forceCloseBtn} onPress={forceCloseVoting}>
-          <Text style={styles.forceCloseBtnText}>Force End Voting</Text>
-        </TouchableOpacity>
-      )}
+          {phase === "submissions" &&
+            userId &&
+            (myRole === "spectator" ? (
+              <View style={styles.spectatorPlaylistCard}>
+                <Text style={styles.spectatorPlaylistEmoji}>🎵</Text>
+                <Text style={styles.spectatorPlaylistTitle}>
+                  A playlist is forming
+                </Text>
+                <Text style={styles.spectatorPlaylistBody}>
+                  Participants are locking in their picks for &ldquo;
+                  {round.prompt}&rdquo;. You&apos;ll be able to listen once
+                  submissions close.
+                </Text>
+              </View>
+            ) : (
+              <SubmissionPhase
+                round={round}
+                userId={userId}
+                mySubmissions={mySubmissions}
+                onSubmitted={() => router.back()}
+              />
+            ))}
 
-      {phase === "results" && <ResultsPhase submissions={submissions} roundId={round.id} />}
+          {phase === "voting" && userId && (
+            <VotingPhase
+              round={round}
+              userId={userId}
+              submissions={submissions}
+              myVotes={myVotes}
+              didSubmit={mySubmissions.length > 0}
+              isSpectator={myRole === "spectator"}
+              onVoted={refetchRound}
+              onScrollToTop={scrollToTop}
+            />
+          )}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -1397,100 +1388,131 @@ export function RoundScreen({
 const styles = StyleSheet.create({
   centered: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: THEME.bg,
     alignItems: "center",
     justifyContent: "center",
   },
   root: {
-    backgroundColor: "#000",
-    padding: 24,
-    paddingBottom: 64,
-    gap: 20,
+    backgroundColor: THEME.bg,
+    gap: 16,
+  },
+  pagePad: {
+    paddingHorizontal: 22,
+    gap: 16,
   },
 
-  roundMeta: { gap: 4 },
-  roundTitle: { fontSize: 28, fontWeight: "800", color: "#fff" },
-  phaseBadge: { fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+  headerActionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.accent,
+  },
+  headerActionText: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 12,
+    color: THEME.accent,
+  },
+
+  phaseCountdown: {
+    ...THEME.text.homeLiveLabel,
+    color: THEME.muted,
+  },
 
   promptCard: {
-    backgroundColor: "#111",
-    borderRadius: 12,
+    backgroundColor: THEME.surface,
+    borderRadius: 14,
     padding: 16,
     gap: 6,
-    borderWidth: 1,
-    borderColor: "#222",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
   promptLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#555",
-    letterSpacing: 1,
+    ...THEME.text.seasonsLabel,
   },
   promptText: {
-    fontSize: 17,
-    color: "#fff",
-    fontWeight: "600",
-    lineHeight: 24,
+    ...THEME.text.homeHeroPrompt,
+    fontSize: 22,
+    lineHeight: 26,
+    marginTop: 2,
+  },
+  promptDescription: {
+    ...THEME.text.sectionMeta,
+    marginTop: 8,
+    lineHeight: 18,
   },
 
   deadlines: { gap: 4 },
-  deadlineItem: { fontSize: 12, color: "#555" },
-  deadlineValue: { color: "#888" },
+  deadlineItem: {
+    fontFamily: THEME.fonts.sansMedium,
+    fontSize: 12,
+    color: THEME.muted,
+  },
+  deadlineValue: {
+    fontFamily: THEME.fonts.sansSemi,
+    color: THEME.ink,
+  },
 
   upcomingCard: {
-    backgroundColor: "#111",
+    backgroundColor: THEME.surface,
     borderRadius: 10,
     padding: 14,
-    borderWidth: 1,
-    borderColor: "#222",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
-  upcomingText: { fontSize: 13, color: "#555", lineHeight: 18 },
+  upcomingText: {
+    fontFamily: THEME.fonts.serifItalic,
+    fontSize: 14,
+    color: THEME.muted,
+    lineHeight: 20,
+  },
 
   // Phase card
   phaseCard: {
-    backgroundColor: "#0d0d0d",
+    backgroundColor: THEME.surface,
     borderRadius: 14,
     padding: 16,
     gap: 14,
-    borderWidth: 1,
-    borderColor: "#1a1a1a",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
   phaseLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#555",
-    letterSpacing: 1,
+    ...THEME.text.seasonsLabel,
   },
-  mutedHint: { fontSize: 12, color: "#444" },
-
-  // Points
-  pointsBar: { flexDirection: "row", alignItems: "baseline" },
-  pointsRemaining: { fontSize: 22, fontWeight: "800", color: "#fff" },
-
-  // Search / link
-  searchInput: {
-    flex: 1,
-    backgroundColor: "#111",
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 14,
-    color: "#fff",
-    borderWidth: 1,
-    borderColor: "#2a2a2a",
+  mutedHint: {
+    fontFamily: THEME.fonts.sansMedium,
+    fontSize: 12,
+    color: THEME.muted,
   },
-  searchLoadingRow: {
-    paddingVertical: 4,
+
+  // Themed button
+  themedBtn: {
+    borderRadius: 999,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
     alignItems: "center",
     justifyContent: "center",
   },
-  resultRow: { paddingTop: 8, paddingBottom: 4 },
+  themedBtnText: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 14,
+  },
 
+  // Points
+  pointsBar: { flexDirection: "row", alignItems: "baseline" },
+  pointsRemaining: {
+    fontFamily: THEME.fonts.sansBold,
+    fontSize: 22,
+    color: THEME.ink,
+  },
+
+  // Submission row
   mySubmissionRow: {
-    backgroundColor: "#111",
+    backgroundColor: THEME.bg,
     borderRadius: 10,
     padding: 12,
-    borderWidth: 1,
-    borderColor: "#2a2a2a",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
   changeRow: {
     minHeight: 18,
@@ -1504,7 +1526,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "transparent",
   },
-  clearSlotText: { fontSize: 12, color: "#888", fontWeight: "600" },
+  clearSlotText: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 12,
+    color: THEME.muted,
+  },
   hiddenChangeText: { color: "transparent" },
   editTrackRow: {
     flexDirection: "row",
@@ -1519,430 +1545,360 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   editArtworkPlaceholderText: {
+    fontFamily: THEME.fonts.sansBold,
     fontSize: 22,
-    color: "#666",
-    fontWeight: "700",
+    color: THEME.muted,
   },
   editTrackMeta: { flex: 1 },
   inlineInputRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#0a0a0a",
+    backgroundColor: THEME.surface,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#222",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
     paddingLeft: 12,
     paddingRight: 8,
   },
   inlineSearchInput: {
     flex: 1,
     minHeight: 48,
-    color: "#fff",
+    color: THEME.ink,
     fontSize: 14,
     paddingVertical: 10,
+    fontFamily: THEME.fonts.sans,
   },
   cancelEditBtn: { paddingHorizontal: 8, paddingVertical: 8 },
-  cancelEditText: { color: "#888", fontSize: 13, fontWeight: "700" },
+  cancelEditText: {
+    color: THEME.muted,
+    fontSize: 13,
+    fontFamily: THEME.fonts.sansBold,
+  },
+  searchLoadingRow: {
+    paddingVertical: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resultRow: { paddingTop: 8, paddingBottom: 4 },
+
   commentInput: {
     marginTop: 10,
     minHeight: 68,
-    backgroundColor: "#0a0a0a",
+    backgroundColor: THEME.surface,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#222",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
     padding: 10,
-    color: "#fff",
+    color: THEME.ink,
     fontSize: 13,
-  },
-  submitTrackBtn: {
-    backgroundColor: "#1DB954",
-    borderRadius: 10,
-    padding: 12,
-    alignItems: "center",
-  },
-  submitTrackBtnText: { color: "#000", fontWeight: "700", fontSize: 14 },
-  secondaryActionBtn: {
-    borderRadius: 10,
-    padding: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#2a2a2a",
-    backgroundColor: "transparent",
-  },
-  secondaryActionBtnText: {
-    color: "#ddd",
-    fontWeight: "700",
-    fontSize: 14,
+    fontFamily: THEME.fonts.sans,
   },
 
-  // Track row
+  // Track row (submission/voting phase, not the results TrackList)
   trackRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  artwork: { backgroundColor: "#222" },
-  artworkPlaceholder: { backgroundColor: "#222" },
+  artwork: { backgroundColor: THEME.rule },
+  artworkPlaceholder: { backgroundColor: THEME.rule },
   trackMeta: { flex: 1, gap: 2 },
-  trackTitle: { fontSize: 15, fontWeight: "600", color: "#fff" },
-  trackArtist: { fontSize: 12, color: "#888" },
+  trackTitle: {
+    ...THEME.text.trackTitle,
+  },
+  trackArtist: {
+    ...THEME.text.trackArtist,
+  },
 
-  // Voting — unified submission card
+  // Voting — submission cards
   submissionVoteCard: {
-    backgroundColor: '#111',
+    backgroundColor: THEME.bg,
     borderRadius: 12,
     padding: 14,
     gap: 10,
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
   submissionVoteCardVoted: {
-    borderColor: '#1DB95466',
-    backgroundColor: '#0f1a12',
+    borderColor: THEME.accent,
+    backgroundColor: "#FBEEEE",
   },
   submissionVoteCardUnvoted: {
-    borderColor: 'transparent',
-    backgroundColor: '#0a0a0a',
+    borderColor: "transparent",
+    backgroundColor: THEME.bg,
     opacity: 0.55,
   },
-  ownTrackLabel: { fontSize: 10, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
+  ownTrackLabel: {
+    ...THEME.text.seasonsLabel,
+    color: THEME.accent,
+  },
   voteStepper: { flexDirection: "row", alignItems: "center", gap: 6 },
   voteBtn: {
     width: 32,
     height: 32,
-    backgroundColor: "#222",
+    backgroundColor: THEME.surface,
     borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
-  voteBtnDisabled: { opacity: 0.25 },
-  voteBtnText: { color: "#fff", fontSize: 18, fontWeight: "300" },
+  voteBtnDisabled: { opacity: 0.3 },
+  voteBtnText: {
+    color: THEME.ink,
+    fontSize: 18,
+    fontFamily: THEME.fonts.sansMedium,
+  },
   votePoints: {
     width: 28,
     textAlign: "center",
     fontSize: 16,
-    fontWeight: "700",
-    color: "#fff",
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.ink,
   },
   votedBanner: {
-    backgroundColor: "#0a1f10",
+    backgroundColor: THEME.surface,
     borderRadius: 8,
     padding: 12,
     alignItems: "center",
     gap: 4,
-    borderWidth: 1,
-    borderColor: "#1DB95433",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.accent,
   },
-  votedBannerText: { color: "#1DB954", fontSize: 13, fontWeight: "700" },
-  votedBannerSub: { color: "#1DB95499", fontSize: 11 },
+  votedBannerText: {
+    color: THEME.accent,
+    fontSize: 13,
+    fontFamily: THEME.fonts.sansBold,
+  },
+  votedBannerSub: {
+    color: THEME.muted,
+    fontSize: 11,
+    fontFamily: THEME.fonts.sansMedium,
+  },
   spectatorCard: {
-    backgroundColor: '#0d0d1a',
+    backgroundColor: THEME.surface,
     borderRadius: 8,
     padding: 14,
     gap: 6,
-    borderWidth: 1,
-    borderColor: '#9b59b633',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
-  spectatorCardTitle: { color: '#9b59b6', fontSize: 13, fontWeight: '700' },
-  spectatorCardBody: { color: '#9b59b699', fontSize: 12, lineHeight: 17 },
+  spectatorCardTitle: {
+    color: THEME.ink,
+    fontSize: 13,
+    fontFamily: THEME.fonts.sansBold,
+  },
+  spectatorCardBody: {
+    color: THEME.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: THEME.fonts.sansMedium,
+  },
   spectatorPlaylistCard: {
     borderRadius: 16,
     padding: 28,
-    alignItems: 'center',
+    alignItems: "center",
     gap: 12,
-    backgroundColor: '#0d0d1a',
-    borderWidth: 1,
-    borderColor: '#9b59b633',
+    backgroundColor: THEME.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
   spectatorPlaylistEmoji: { fontSize: 48 },
-  spectatorPlaylistTitle: { fontSize: 18, fontWeight: '800', color: '#fff', textAlign: 'center' },
-  spectatorPlaylistBody: { fontSize: 13, color: '#888', lineHeight: 20, textAlign: 'center' },
+  spectatorPlaylistTitle: {
+    fontSize: 18,
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.ink,
+    textAlign: "center",
+  },
+  spectatorPlaylistBody: {
+    fontSize: 13,
+    color: THEME.muted,
+    lineHeight: 20,
+    textAlign: "center",
+    fontFamily: THEME.fonts.sansMedium,
+  },
   seasonCompleteBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 14,
-    backgroundColor: '#1a1400',
+    backgroundColor: THEME.surface,
     borderRadius: 14,
     padding: 16,
-    borderWidth: 1,
-    borderColor: '#FFD70044',
+    marginHorizontal: 22,
+    marginTop: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.accent,
   },
   seasonCompleteEmoji: { fontSize: 36 },
   seasonCompleteText: { flex: 1, gap: 3 },
-  seasonCompleteTitle: { fontSize: 16, fontWeight: '800', color: '#FFD700' },
-  seasonCompleteSub: { fontSize: 12, color: '#FFD70099' },
+  seasonCompleteTitle: {
+    fontSize: 16,
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.ink,
+  },
+  seasonCompleteSub: {
+    fontSize: 12,
+    color: THEME.muted,
+    fontFamily: THEME.fonts.sansMedium,
+  },
   ineligibleBanner: {
-    backgroundColor: '#1a0a00',
+    backgroundColor: THEME.surface,
     borderRadius: 8,
     padding: 12,
     gap: 4,
-    borderWidth: 1,
-    borderColor: '#f0a50033',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
-  ineligibleTitle: { color: '#f0a500', fontSize: 13, fontWeight: '700' },
-  ineligibleSub: { color: '#f0a50099', fontSize: 11 },
-  lockedPts: { fontSize: 12, fontWeight: "700", color: "#1DB954" },
-  lockedPtsNone: { fontSize: 12, color: "#333" },
-  submitVoteBtn: {
-    backgroundColor: "#1DB954",
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
+  ineligibleTitle: {
+    color: THEME.ink,
+    fontSize: 13,
+    fontFamily: THEME.fonts.sansBold,
   },
-  submitVoteBtnText: { color: "#000", fontSize: 15, fontWeight: "800" },
-
-  // Results hero
-  resultsHero: {
-    backgroundColor: '#0d0d0d',
-    borderRadius: 14,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#FFD70033',
-    gap: 4,
-    alignItems: 'center',
+  ineligibleSub: {
+    color: THEME.muted,
+    fontSize: 11,
+    fontFamily: THEME.fonts.sansMedium,
   },
-  resultsHeroEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 2,
-    color: '#FFD700',
-  },
-  resultsHeroTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#fff',
-    textAlign: 'center',
-  },
-  resultsHeroSub: {
+  lockedPts: {
     fontSize: 12,
-    color: '#888',
-    textAlign: 'center',
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.accent,
+  },
+  lockedPtsNone: {
+    fontSize: 12,
+    color: THEME.faint,
+    fontFamily: THEME.fonts.sansMedium,
   },
 
-  // Podium — horizontal 2-1-3 arrangement
-  podiumRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 8,
+  // Voters & comments section
+  votersSection: {
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    gap: 14,
   },
-  podiumCol: {
-    flex: 1,
-    alignItems: 'center',
+  sectionEyebrow: {
+    ...THEME.text.seasonsLabel,
+  },
+  voterGroup: {
+    backgroundColor: THEME.surface,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
     gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    backgroundColor: '#0d0d0d',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
   },
-  podiumColWinner: {
-    paddingVertical: 14,
-    backgroundColor: '#14100a',
-    borderColor: '#FFD70044',
+  voterGroupTitle: {
+    ...THEME.text.trackTitle,
   },
-  podiumAvatar: {
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
+  voterGroupSub: {
+    ...THEME.text.trackArtist,
   },
-  podiumAvatarText: {
-    fontWeight: '800',
-  },
-  podiumPlace: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-  podiumColName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#ddd',
-    maxWidth: '100%',
-    textAlign: 'center',
-  },
-  podiumScoreRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
-  podiumScore: { fontSize: 18, fontWeight: '800' },
-  podiumScoreLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#555',
-    letterSpacing: 0.5,
-  },
-
-  // Submitter badge
-  submitterBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    alignSelf: 'flex-start',
-  },
-  submitterAvatar: {
-    backgroundColor: '#2a2a2a',
-    borderWidth: 1,
-    borderColor: '#333',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  submitterAvatarText: {
-    color: '#fff',
-    fontWeight: '800',
-  },
-  submitterName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#ccc',
-    maxWidth: 160,
-  },
-
-  // Results
-  resultItem: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    backgroundColor: "#0d0d0d",
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "#1a1a1a",
-  },
-  rankCol: {
-    width: 32,
-    alignItems: "center",
-    paddingTop: 2,
-  },
-  rank: { fontSize: 15, fontWeight: "800" },
-  resultContent: { flex: 1, gap: 8 },
-  scoreCol: {
-    alignItems: "flex-end",
-    paddingTop: 2,
-    minWidth: 40,
-  },
-  resultScore: {
-    fontSize: 22,
-    fontWeight: "800",
-    lineHeight: 24,
-  },
-  resultScoreLabel: {
-    fontSize: 10,
-    fontWeight: "700",
-    color: "#555",
-    letterSpacing: 0.5,
-  },
-
-  // Voter thread (results)
   votersThread: {
-    gap: 0,
+    marginTop: 6,
     borderRadius: 10,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#1e1e1e',
-    marginTop: 4,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
   voterRow: {
-    backgroundColor: '#111',
+    backgroundColor: THEME.bg,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 4,
   },
   voterRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: '#1e1e1e',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: THEME.rule,
   },
   voterHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  voterName: { fontSize: 12, fontWeight: '700', color: '#bbb' },
-  voterPoints: { fontSize: 13, fontWeight: '800', color: '#1DB954' },
-  voterPointsZero: { color: '#444' },
-  voterPointsVoid: {
-    color: '#555',
-    textDecorationLine: 'line-through',
+  voterName: {
+    fontSize: 12,
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.ink,
   },
-  voterComment: { fontSize: 12, color: '#888', fontStyle: 'italic', lineHeight: 17 },
+  voterPoints: {
+    fontSize: 13,
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.accent,
+  },
+  voterPointsZero: { color: THEME.faint },
+  voterComment: {
+    fontSize: 12,
+    color: THEME.muted,
+    fontFamily: THEME.fonts.serifItalic,
+    lineHeight: 17,
+  },
 
-  // Forfeit styling (submitter didn't vote)
-  forfeitDividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  submissionComment: {
     marginTop: 8,
+    color: THEME.muted,
+    fontSize: 12,
+    fontFamily: THEME.fonts.serifItalic,
+    lineHeight: 17,
   },
-  forfeitDividerLine: { flex: 1, height: 1, backgroundColor: '#1a1a1a' },
+
+  // Forfeits
+  forfeitSection: {
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    gap: 10,
+  },
+  forfeitDividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  forfeitDividerLine: { flex: 1, height: 1, backgroundColor: THEME.rule },
   forfeitDividerLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    color: '#555',
+    ...THEME.text.seasonsLabel,
   },
   forfeitHelp: {
     fontSize: 11,
-    color: '#666',
+    color: THEME.muted,
     lineHeight: 16,
-    marginTop: -4,
-    fontStyle: 'italic',
+    fontFamily: THEME.fonts.serifItalic,
   },
-  forfeitHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  forfeitItem: {
+    backgroundColor: THEME.surface,
+    borderRadius: 12,
+    padding: 12,
     gap: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
+    opacity: 0.7,
+  },
+  forfeitItemHead: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  forfeitItemName: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 13,
+    color: THEME.ink,
   },
   forfeitBadge: {
     fontSize: 9,
-    fontWeight: '800',
+    fontFamily: THEME.fonts.sansBold,
     letterSpacing: 1,
-    color: '#888',
-    backgroundColor: '#1a1a1a',
+    color: THEME.muted,
+    backgroundColor: THEME.bg,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
-    overflow: 'hidden',
-  },
-  resultItemForfeit: {
-    opacity: 0.6,
-    borderColor: '#1a1a1a',
-    backgroundColor: '#0a0a0a',
-  },
-  rankForfeit: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#444',
-  },
-  resultScoreVoid: {
-    color: '#555',
-    textDecorationLine: 'line-through',
+    overflow: "hidden",
   },
 
-  // Comment input (voting phase)
-  commentInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   commentInputField: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: THEME.surface,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 13,
-    color: '#fff',
+    color: THEME.ink,
+    fontFamily: THEME.fonts.sans,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
   },
-  commentSendBtn: { paddingHorizontal: 8, paddingVertical: 6 },
-  commentSendText: { fontSize: 13, fontWeight: '700', color: '#1DB954' },
-  submissionComment: {
-    marginTop: 8,
-    color: "#999",
-    fontSize: 12,
-    fontStyle: "italic",
-    lineHeight: 17,
-  },
-
-  // Commissioner force-close
-  forceCloseBtn: {
-    borderRadius: 10,
-    padding: 12,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#c0392b55",
-    backgroundColor: "#1a0505",
-  },
-  forceCloseBtnText: { color: "#e74c3c", fontWeight: "700", fontSize: 13 },
 });

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   RefreshControl, ScrollView, View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Share, Alert,
@@ -9,10 +9,16 @@ import { useSession } from '@/context/SessionContext';
 import { useLeague } from '@/queries/useLeague';
 import { useLeagueMembers } from '@/queries/useLeagueMembers';
 import { useSeasonsForLeague } from '@/queries/useSeasonsForLeague';
+import { THEME } from '@/ui/theme';
+import { PageHeader } from '@/ui/PageHeader';
+import { SeasonsList, type SeasonsListSeason } from '@/ui/sections/SeasonsList';
+import { AvatarStack } from '@/ui/sections/AvatarStack';
+import { useTabBarBottomInset } from '@/ui/hooks/useTabBarBottomInset';
 
 export function LeagueScreen({ leagueId }: { leagueId: string }) {
   const router = useRouter();
   const { supabaseUserId } = useSession();
+  const bottomInset = useTabBarBottomInset();
 
   const { data: league, isLoading: leagueLoading, refetch: refetchLeague } =
     useLeague(leagueId);
@@ -39,8 +45,8 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
   const isCommissioner = league?.admin_user_id === supabaseUserId;
 
   const handleNewSeason = async () => {
-    // FE guard: check if any season still has live rounds. Leaving this inline
-    // until the creation-flow slice; it's a one-off that doesn't reuse well.
+    // FE guard: check if any season still has live rounds. Pre-existing inline
+    // supabase call tracked as tech debt in CLAUDE.md; leaving for now.
     const { data: liveRounds } = await supabase
       .from('rounds')
       .select('id, seasons!inner(league_id)')
@@ -58,101 +64,127 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
     router.push('/(tabs)/(home)/create-season' as any);
   };
 
+  // Map league seasons (status: draft|active|completed) to the SeasonsList
+  // model which only knows about "active" or "completed".
+  const seasonListItems: SeasonsListSeason[] = useMemo(
+    () =>
+      seasons.map((s) => ({
+        id: s.id,
+        name: s.name,
+        status: s.status === 'completed' ? 'completed' : 'active',
+      })),
+    [seasons],
+  );
+
   if (leagueLoading) {
-    return <View style={styles.centered}><ActivityIndicator color="#555" /></View>;
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color={THEME.muted} />
+      </View>
+    );
   }
 
   if (!league) {
-    return <View style={styles.centered}><Text style={styles.mutedText}>League not found.</Text></View>;
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.mutedText}>League not found.</Text>
+      </View>
+    );
   }
+
+  // Active season with an invite token — the per-season Share button moves to
+  // a single Share Invite affordance under Seasons.
+  const activeSeasonWithToken = seasons.find(
+    (s) => s.status === 'active' && s.invite_token,
+  );
 
   return (
     <ScrollView
-      contentContainerStyle={styles.root}
-      style={{ flex: 1, backgroundColor: '#000' }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+      contentContainerStyle={[styles.root, { paddingBottom: bottomInset + 24 }]}
+      style={{ flex: 1, backgroundColor: THEME.bg }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={THEME.accent} />
+      }
     >
-      <View style={styles.leagueHeader}>
-        <Text style={styles.leagueName}>{league.name}</Text>
-        {isCommissioner && <Text style={styles.commissionerBadge}>COMMISSIONER</Text>}
-      </View>
+      <PageHeader
+        title={league.name}
+        leagueTag={isCommissioner ? 'You commission this league' : undefined}
+        trailing={
+          isCommissioner ? (
+            <TouchableOpacity onPress={handleNewSeason} style={styles.headerActionBtn}>
+              <Text style={styles.headerActionText}>+ New Season</Text>
+            </TouchableOpacity>
+          ) : undefined
+        }
+      />
 
       {/* ── Seasons ── */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Seasons</Text>
+      {seasonListItems.length === 0 ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>No seasons yet.</Text>
           {isCommissioner && (
-            <TouchableOpacity style={styles.newBtn} onPress={handleNewSeason}>
-              <Text style={styles.newBtnText}>+ New</Text>
+            <TouchableOpacity onPress={handleNewSeason}>
+              <Text style={styles.emptyLink}>Create the first season →</Text>
             </TouchableOpacity>
           )}
         </View>
-
-        {seasons.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>No seasons yet.</Text>
-            {isCommissioner && (
-              <TouchableOpacity onPress={handleNewSeason}>
-                <Text style={styles.emptyLink}>Create the first season →</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : (
-          seasons.map((season) => (
+      ) : (
+        <>
+          <SeasonsList
+            seasons={seasonListItems}
+            onPress={(id) =>
+              router.push({
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                pathname: '/(tabs)/(home)/season/[id]' as any,
+                params: { id },
+              })
+            }
+          />
+          {isCommissioner && activeSeasonWithToken && (
             <TouchableOpacity
-              key={season.id}
-              style={styles.seasonCard}
-              activeOpacity={0.7}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              onPress={() => router.push({ pathname: '/(tabs)/(home)/season/[id]' as any, params: { id: season.id } })}
+              style={styles.shareBtn}
+              onPress={() =>
+                Share.share({
+                  message: `Join ${league.name} on mix!\nmix://join?token=${activeSeasonWithToken.invite_token}`,
+                })
+              }
             >
-              <View style={styles.seasonCardTop}>
-                <View>
-                  <Text style={styles.seasonName}>{season.name}</Text>
-                  <Text style={styles.seasonMeta}>Season {season.season_number}</Text>
-                </View>
-                <View style={[
-                  styles.statusBadge,
-                  season.status === 'active' ? styles.statusActive
-                  : season.status === 'completed' ? styles.statusCompleted
-                  : styles.statusDone,
-                ]}>
-                  <Text style={[
-                    styles.statusText,
-                    season.status === 'completed' && styles.statusTextCompleted,
-                  ]}>{season.status.toUpperCase()}</Text>
-                </View>
-              </View>
-              {isCommissioner && season.status === 'active' && season.invite_token && (
-                <TouchableOpacity
-                  style={styles.shareBtn}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    Share.share({ message: `Join ${league.name} on mix!\nmix://join?token=${season.invite_token}` });
-                  }}
-                >
-                  <Text style={styles.shareBtnText}>Share Invite Link</Text>
-                </TouchableOpacity>
-              )}
+              <Text style={styles.shareBtnText}>Share Invite Link</Text>
             </TouchableOpacity>
-          ))
-        )}
-      </View>
+          )}
+        </>
+      )}
 
       {/* ── Members ── */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Members ({members.length})</Text>
+      <View style={styles.membersSection}>
+        <View style={styles.membersHeader}>
+          <Text style={styles.membersLabel}>Members</Text>
+          <AvatarStack
+            participants={members.map((m) => ({
+              id: m.user_id,
+              displayName: m.display_name,
+            }))}
+            size={28}
+          />
+        </View>
         {members.map((m) => (
           <View key={m.user_id} style={styles.memberRow}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{m.display_name[0]?.toUpperCase() ?? '?'}</Text>
+              <Text style={styles.avatarText}>
+                {m.display_name[0]?.toUpperCase() ?? '?'}
+              </Text>
             </View>
             <Text style={styles.memberName}>{m.display_name}</Text>
             <View style={styles.memberBadges}>
               {m.user_id === league.admin_user_id && (
                 <Text style={styles.commBadge}>COMM</Text>
               )}
-              <Text style={[styles.roleBadge, m.role === 'spectator' && styles.roleBadgeSpectator]}>
+              <Text
+                style={[
+                  styles.roleBadge,
+                  m.role === 'spectator' && styles.roleBadgeSpectator,
+                ]}
+              >
                 {m.role.toUpperCase()}
               </Text>
             </View>
@@ -164,44 +196,101 @@ export function LeagueScreen({ leagueId }: { leagueId: string }) {
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  mutedText: { color: '#555', fontSize: 15 },
+  centered: {
+    flex: 1,
+    backgroundColor: THEME.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mutedText: { color: THEME.muted, fontSize: 15, fontFamily: THEME.fonts.sansMedium },
 
-  root: { backgroundColor: '#000', padding: 24, paddingTop: 56, paddingBottom: 48, gap: 32 },
+  root: { backgroundColor: THEME.bg, gap: 0 },
 
-  leagueHeader: { gap: 4 },
-  leagueName: { fontSize: 28, fontWeight: '800', color: '#fff' },
-  commissionerBadge: { fontSize: 10, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
+  headerActionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: THEME.ink,
+  },
+  headerActionText: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 12,
+    color: '#fff',
+  },
 
-  section: { gap: 12 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: '#666', letterSpacing: 1, textTransform: 'uppercase' },
-  newBtn: { paddingHorizontal: 12, paddingVertical: 5, backgroundColor: '#1DB954', borderRadius: 6 },
-  newBtnText: { fontSize: 13, fontWeight: '700', color: '#000' },
+  empty: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    gap: 8,
+    paddingHorizontal: 22,
+  },
+  emptyText: { fontSize: 14, color: THEME.muted, fontFamily: THEME.fonts.sansMedium },
+  emptyLink: { fontSize: 14, color: THEME.accent, fontFamily: THEME.fonts.sansSemi },
 
-  empty: { alignItems: 'center', paddingVertical: 24, gap: 8 },
-  emptyText: { fontSize: 14, color: '#444' },
-  emptyLink: { fontSize: 14, color: '#1DB954' },
+  shareBtn: {
+    marginTop: 14,
+    marginHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
+    alignItems: 'center',
+    backgroundColor: THEME.surface,
+  },
+  shareBtnText: { fontSize: 13, color: THEME.ink, fontFamily: THEME.fonts.sansSemi },
 
-  seasonCard: { backgroundColor: '#111', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#222', gap: 12 },
-  seasonCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  seasonName: { fontSize: 16, fontWeight: '700', color: '#fff' },
-  seasonMeta: { fontSize: 12, color: '#555', marginTop: 2 },
-  shareBtn: { paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#333', alignItems: 'center' },
-  shareBtnText: { fontSize: 13, color: '#888', fontWeight: '600' },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  statusActive: { backgroundColor: '#1DB95422' },
-  statusDone: { backgroundColor: '#33333388' },
-  statusCompleted: { backgroundColor: '#FFD70022' },
-  statusText: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#1DB954' },
-  statusTextCompleted: { color: '#FFD700' },
+  membersSection: {
+    marginTop: 32,
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: THEME.rule,
+    gap: 12,
+  },
+  membersHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  membersLabel: {
+    ...THEME.text.seasonsLabel,
+  },
 
-  memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
-  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#222', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  memberName: { flex: 1, fontSize: 15, color: '#fff', fontWeight: '500' },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: THEME.rule,
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: THEME.faint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { fontSize: 15, fontFamily: THEME.fonts.sansBold, color: '#fff' },
+  memberName: {
+    flex: 1,
+    fontSize: 15,
+    color: THEME.ink,
+    fontFamily: THEME.fonts.sansSemi,
+  },
   memberBadges: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  commBadge: { fontSize: 9, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
-  roleBadge: { fontSize: 9, fontWeight: '700', color: '#555', letterSpacing: 1 },
-  roleBadgeSpectator: { color: '#444' },
+  commBadge: {
+    fontSize: 9,
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.accent,
+    letterSpacing: 1,
+  },
+  roleBadge: {
+    fontSize: 9,
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.muted,
+    letterSpacing: 1,
+  },
+  roleBadgeSpectator: { color: THEME.faint },
 });

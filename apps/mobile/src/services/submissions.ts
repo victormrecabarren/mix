@@ -73,3 +73,30 @@ export async function submitRoundEntries(
     if (error) throw postgresToMixError(error);
   }
 }
+
+// ─── Batched submission counts ────────────────────────────────────────────────
+// Returns a map of roundId → submission count for the requested rounds.
+// One Supabase query: PostgREST doesn't support server-side GROUP BY, so we
+// fetch the `round_id` column for the requested rounds and tally client-side.
+// This is fine at our scale (a season has O(10) rounds, each with O(10)
+// submissions); revisit with an RPC if rows grow into the thousands.
+// Rounds with zero submissions are simply absent from the map; callers should
+// default to 0 when reading.
+export async function getSubmissionCountsForRounds(
+  roundIds: string[],
+): Promise<Record<string, number>> {
+  if (roundIds.length === 0) return {};
+
+  const { data, error } = await supabase
+    .from("submissions")
+    .select("round_id")
+    .in("round_id", roundIds);
+  if (error) throw postgresToMixError(error);
+
+  const counts: Record<string, number> = {};
+  for (const row of data ?? []) {
+    const key = (row as { round_id: string }).round_id;
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return counts;
+}
