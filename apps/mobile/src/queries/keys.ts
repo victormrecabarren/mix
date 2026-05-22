@@ -14,6 +14,8 @@ export const queryKeys = {
     ["season", seasonId, "prevRound", roundNumber] as const,
   roundResults: (roundId: string) => ["round", roundId, "results"] as const,
   roundVoters: (roundId: string) => ["round", roundId, "voters"] as const,
+  submissionCounts: (roundIds: string[]) =>
+    ["submissionCounts", ...roundIds.slice().sort()] as const,
 
   // Season
   season: (seasonId: string) => ["season", seasonId] as const,

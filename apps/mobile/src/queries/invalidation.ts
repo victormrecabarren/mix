@@ -12,6 +12,15 @@ export const invalidations = {
   submitRoundEntries: (qc: QueryClient, ctx: { roundId: string }) => {
     // A submit may auto-close the round, so refresh everything round-scoped.
     qc.invalidateQueries({ queryKey: queryKeys.round(ctx.roundId) });
+    // submissionCounts keys live under a separate prefix (sorted ids in the
+    // key body), so prefix invalidation doesn't reach them. Match any
+    // submissionCounts entry that includes this round.
+    qc.invalidateQueries({
+      predicate: (q) => {
+        const key = q.queryKey as readonly unknown[];
+        return key[0] === "submissionCounts" && key.includes(ctx.roundId);
+      },
+    });
   },
   updateSeason: (qc: QueryClient, ctx: { seasonId: string }) => {
     qc.invalidateQueries({ queryKey: queryKeys.season(ctx.seasonId) });

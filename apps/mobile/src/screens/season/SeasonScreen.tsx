@@ -6,7 +6,6 @@ import {
 import { KeyboardScroll } from '@/components/KeyboardScroll'; // used inside modals only
 import RNDateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { supabase } from '@/lib/supabase';
 import { useSession } from '@/context/SessionContext';
 import { useSeason } from '@/queries/useSeason';
 import { useRoundsForSeason } from '@/queries/useRoundsForSeason';
@@ -17,6 +16,10 @@ import { useUpdateSeason } from '@/queries/useUpdateSeason';
 import { useUpdateRound } from '@/queries/useUpdateRound';
 import { useCreateRound } from '@/queries/useCreateRound';
 import { MixError } from '@/services/errors';
+import { THEME } from '@/ui/theme';
+import { PageHeader } from '@/ui/PageHeader';
+import { AvatarStack, type AvatarParticipant } from '@/ui/sections/AvatarStack';
+import { useTabBarBottomInset } from '@/ui/hooks/useTabBarBottomInset';
 
 type Season = {
   id: string;
@@ -66,19 +69,25 @@ function withStandingsRanks(rows: StandingRow[]): (StandingRow & { displayRank: 
 
 type RoundStage = 'upcoming' | 'submissions' | 'voting' | 'completed';
 
-function getRoundEffectiveStatus(rounds: Round[], index: number): { label: string; color: string; isActive: boolean; stage: RoundStage } {
+function getRoundEffectiveStatus(
+  rounds: Round[],
+  index: number,
+): { label: string; color: string; isActive: boolean; stage: RoundStage } {
   const now = Date.now();
   const isCompleted = (r: Round) => now >= new Date(r.voting_deadline_at).getTime();
 
   const prevCompleted = index === 0 || isCompleted(rounds[index - 1]);
-  if (!prevCompleted) return { label: 'UPCOMING', color: '#444', isActive: false, stage: 'upcoming' };
+  if (!prevCompleted)
+    return { label: 'UPCOMING', color: THEME.faint, isActive: false, stage: 'upcoming' };
 
   const round = rounds[index];
   const subDeadline = new Date(round.submission_deadline_at).getTime();
   const voteDeadline = new Date(round.voting_deadline_at).getTime();
-  if (now < subDeadline) return { label: 'SUBMISSIONS OPEN', color: '#1DB954', isActive: true, stage: 'submissions' };
-  if (now < voteDeadline) return { label: 'VOTING OPEN', color: '#f0a500', isActive: true, stage: 'voting' };
-  return { label: 'COMPLETED', color: '#555', isActive: false, stage: 'completed' };
+  if (now < subDeadline)
+    return { label: 'SUBMISSIONS OPEN', color: THEME.accent, isActive: true, stage: 'submissions' };
+  if (now < voteDeadline)
+    return { label: 'VOTING OPEN', color: THEME.accent, isActive: true, stage: 'voting' };
+  return { label: 'COMPLETED', color: THEME.muted, isActive: false, stage: 'completed' };
 }
 
 function formatDate(iso: string) {
@@ -94,39 +103,8 @@ function formatDateTime(date: Date) {
   });
 }
 
-// ─── Avatar stack ─────────────────────────────────────────────────────────────
-
-const MAX_AVATARS = 4;
-
-function AvatarStack({ members, label, color }: {
-  members: Member[];
-  label: string;
-  color: string;
-}) {
-  const shown = members.slice(0, MAX_AVATARS);
-  const overflow = members.length - shown.length;
-  return (
-    <View style={styles.avatarStackRow}>
-      <Text style={[styles.avatarStackLabel, { color }]}>
-        {label} ({members.length})
-      </Text>
-      <View style={styles.avatarStackAvatars}>
-        {shown.map((m, i) => (
-          <View
-            key={m.user_id}
-            style={[styles.avatarStackBubble, { marginLeft: i === 0 ? 0 : -8, zIndex: MAX_AVATARS - i }]}
-          >
-            <Text style={styles.avatarStackInitial}>{m.display_name[0]?.toUpperCase() ?? '?'}</Text>
-          </View>
-        ))}
-        {overflow > 0 && (
-          <View style={[styles.avatarStackBubble, styles.avatarStackOverflow, { marginLeft: -8 }]}>
-            <Text style={styles.avatarStackOverflowText}>+{overflow}</Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
+function membersToParticipants(members: Member[]): AvatarParticipant[] {
+  return members.map((m) => ({ id: m.user_id, displayName: m.display_name }));
 }
 
 // ─── Shared subcomponents ─────────────────────────────────────────────────────
@@ -173,8 +151,7 @@ function DateTimeField({ value, onChange }: { value: Date; onChange: (d: Date) =
               display="spinner"
               onValueChange={(_, d) => d && setTemp(d)}
               onDismiss={() => setOpen(false)}
-              themeVariant="dark"
-              textColor="#fff"
+              textColor={THEME.ink}
               style={{ width: '100%' }}
             />
           </View>
@@ -185,6 +162,7 @@ function DateTimeField({ value, onChange }: { value: Date; onChange: (d: Date) =
 }
 
 // ─── Season edit modal ────────────────────────────────────────────────────────
+// TODO: redesign in v2.
 
 type SeasonEditForm = {
   name: string;
@@ -247,7 +225,7 @@ function SeasonEditModal({ season, visible, onClose, onSaved }: {
               style={styles.modalInput}
               value={form.name}
               onChangeText={(name) => setForm((f) => ({ ...f, name }))}
-              placeholderTextColor="#555"
+              placeholderTextColor={THEME.faint}
               autoFocus
             />
 
@@ -279,6 +257,7 @@ function SeasonEditModal({ season, visible, onClose, onSaved }: {
 }
 
 // ─── Round form modal (create + edit) ────────────────────────────────────────
+// TODO: redesign in v2.
 
 type RoundFormValues = {
   prompt: string;
@@ -388,7 +367,7 @@ function RoundFormModal({ mode, visible, onClose, onSaved }: {
               onChangeText={(prompt) => setForm((f) => ({ ...f, prompt }))}
               multiline
               placeholder="e.g. Songs that feel like summer"
-              placeholderTextColor="#555"
+              placeholderTextColor={THEME.faint}
               autoFocus
             />
 
@@ -399,7 +378,7 @@ function RoundFormModal({ mode, visible, onClose, onSaved }: {
               onChangeText={(description) => setForm((f) => ({ ...f, description }))}
               multiline
               placeholder="Extra context or rules for the round"
-              placeholderTextColor="#555"
+              placeholderTextColor={THEME.faint}
             />
 
             <Text style={[styles.fieldLabel, { marginTop: 20 }]}>SUBMISSION DEADLINE</Text>
@@ -420,6 +399,7 @@ type Tab = 'rounds' | 'standings';
 
 export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initialTab?: Tab }) {
   const router = useRouter();
+  const bottomInset = useTabBarBottomInset();
 
   const { supabaseUserId: userId } = useSession();
   const { data: season, isLoading: seasonLoading, refetch: refetchSeason } =
@@ -544,7 +524,7 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#555" />
+        <ActivityIndicator color={THEME.muted} />
       </View>
     );
   }
@@ -563,7 +543,7 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
     const st = statusByRoundId[round.id];
     const { label, color, isActive, stage } = st ?? {
       label: '—',
-      color: '#555',
+      color: THEME.muted,
       isActive: false,
       stage: 'completed' as RoundStage,
     };
@@ -603,9 +583,19 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
 
         {isActive && (
           <View style={styles.submissionStatus}>
-            <AvatarStack members={doneMembers} label={doneLabel} color={stage === 'voting' ? '#f0a500' : '#1DB954'} />
+            <View style={styles.avatarStackLine}>
+              <Text style={[styles.avatarStackLabel, { color: THEME.accent }]}>
+                {doneLabel} ({doneMembers.length})
+              </Text>
+              <AvatarStack participants={membersToParticipants(doneMembers)} size={26} />
+            </View>
             {waitingMembers.length > 0 && (
-              <AvatarStack members={waitingMembers} label="Waiting" color="#555" />
+              <View style={styles.avatarStackLine}>
+                <Text style={[styles.avatarStackLabel, { color: THEME.muted }]}>
+                  Waiting ({waitingMembers.length})
+                </Text>
+                <AvatarStack participants={membersToParticipants(waitingMembers)} size={26} />
+              </View>
             )}
           </View>
         )}
@@ -627,148 +617,164 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
   return (
     <View style={styles.screenRoot}>
       <ScrollView
-        contentContainerStyle={styles.root}
-        style={{ flex: 1, backgroundColor: '#000' }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1DB954" />}
+        contentContainerStyle={[styles.root, { paddingBottom: bottomInset + 24 }]}
+        style={{ flex: 1, backgroundColor: THEME.bg }}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={THEME.accent} />
+        }
       >
         {/* ── Season header ── */}
-        <View style={styles.titleRow}>
-          <Text style={styles.pageTitle}>{season.name}</Text>
-          <View style={[styles.statusBadge, season.status === 'active' ? styles.statusActive : styles.statusDone]}>
-            <Text style={styles.statusText}>{season.status.toUpperCase()}</Text>
-          </View>
-        </View>
-        <Text style={styles.seasonMeta}>Season {season.season_number}</Text>
-        {isCommissioner && season.status !== 'completed' && (
-          <TouchableOpacity onPress={() => setEditingSeasonOpen(true)}>
-            <Text style={styles.editBtn}>Edit Season</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* ── Tab switcher ── */}
-        <View style={styles.tabBar}>
-          <TouchableOpacity
-            style={[styles.tabBtn, tab === 'rounds' && styles.tabBtnActive]}
-            onPress={() => setTab('rounds')}
-          >
-            <Text style={[styles.tabBtnText, tab === 'rounds' && styles.tabBtnTextActive]}>
-              Rounds
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabBtn, tab === 'standings' && styles.tabBtnActive]}
-            onPress={() => setTab('standings')}
-          >
-            <Text style={[styles.tabBtnText, tab === 'standings' && styles.tabBtnTextActive]}>
-              Standings
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Rounds tab ── */}
-        {tab === 'rounds' && (
-          <View style={styles.section}>
-            {rounds.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyText}>No rounds yet.</Text>
-              </View>
-            ) : (
-              <>
-                {/* In-progress & upcoming: highest round number first (current action at top) */}
-                {incompleteRounds.map((round) => renderRoundCard(round))}
-
-                {completedRounds.length > 0 && incompleteRounds.length > 0 && (
-                  <View style={styles.completedRoundsBreak}>
-                    <View style={styles.completedRoundsBreakLine} />
-                    <Text style={styles.completedRoundsBreakLabel}>Completed rounds</Text>
-                    <View style={styles.completedRoundsBreakLine} />
-                  </View>
-                )}
-
-                {completedRounds.length > 0 && incompleteRounds.length === 0 && (
-                  <Text style={styles.completedRoundsSectionTitle}>Completed rounds</Text>
-                )}
-
-                {/* Finished rounds: highest round number first (most recent completion at top) */}
-                {completedRounds.map((round) => renderRoundCard(round))}
-              </>
-            )}
-
-            {isCommissioner && season.status === 'active' && (
+        <PageHeader
+          leagueTag={league?.name}
+          title={season.name}
+          trailing={
+            isCommissioner && season.status !== 'completed' ? (
               <TouchableOpacity
-                style={styles.addRoundBtn}
-                onPress={() => setCreatingRound(true)}
-                activeOpacity={0.7}
+                onPress={() => setEditingSeasonOpen(true)}
+                style={styles.headerActionBtn}
               >
-                <Text style={styles.addRoundBtnIcon}>+</Text>
-                <Text style={styles.addRoundBtnText}>Add Round</Text>
+                <Text style={styles.headerActionText}>Edit</Text>
               </TouchableOpacity>
-            )}
-          </View>
-        )}
+            ) : undefined
+          }
+        />
 
-        {/* ── Standings tab (points from rounds whose voting has ended only) ── */}
-        {tab === 'standings' && (
-          <View style={styles.section}>
-            <Text style={styles.standingsHint}>
-              Totals include completed rounds only — they update after each round&apos;s voting deadline passes.
-            </Text>
-            {(() => {
-              const participants = standingsWithRank.filter((r) => r.member_role !== 'spectator');
-              const spectators = standingsWithRank.filter((r) => r.member_role === 'spectator');
-              return (
+        <View style={styles.pagePad}>
+          <View style={styles.seasonMetaRow}>
+            <Text style={styles.seasonMeta}>Season {season.season_number}</Text>
+            <View
+              style={[
+                styles.statusBadge,
+                season.status === 'active' ? styles.statusActive : styles.statusDone,
+              ]}
+            >
+              <Text style={styles.statusText}>{season.status.toUpperCase()}</Text>
+            </View>
+          </View>
+
+          {/* ── Tab switcher ── */}
+          <View style={styles.tabBar}>
+            <TouchableOpacity
+              style={[styles.tabBtn, tab === 'rounds' && styles.tabBtnActive]}
+              onPress={() => setTab('rounds')}
+            >
+              <Text style={[styles.tabBtnText, tab === 'rounds' && styles.tabBtnTextActive]}>
+                Rounds
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tabBtn, tab === 'standings' && styles.tabBtnActive]}
+              onPress={() => setTab('standings')}
+            >
+              <Text style={[styles.tabBtnText, tab === 'standings' && styles.tabBtnTextActive]}>
+                Standings
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* ── Rounds tab ── */}
+          {tab === 'rounds' && (
+            <View style={styles.section}>
+              {rounds.length === 0 ? (
+                <View style={styles.empty}>
+                  <Text style={styles.emptyText}>No rounds yet.</Text>
+                </View>
+              ) : (
                 <>
-                  {participants.length === 0 ? (
-                    <View style={styles.empty}>
-                      <Text style={styles.emptyText}>No standings yet.</Text>
+                  {incompleteRounds.map((round) => renderRoundCard(round))}
+
+                  {completedRounds.length > 0 && incompleteRounds.length > 0 && (
+                    <View style={styles.completedRoundsBreak}>
+                      <View style={styles.completedRoundsBreakLine} />
+                      <Text style={styles.completedRoundsBreakLabel}>Completed rounds</Text>
+                      <View style={styles.completedRoundsBreakLine} />
                     </View>
-                  ) : (
-                    participants.map((row) => (
-                      <View key={row.user_id} style={styles.standingRow}>
-                        <Text style={styles.standingRank}>{row.displayRank}</Text>
-                        <View style={styles.avatar}>
-                          <Text style={styles.avatarText}>{row.display_name[0]?.toUpperCase() ?? '?'}</Text>
-                        </View>
-                        <View style={styles.standingMeta}>
-                          <Text style={styles.standingName} numberOfLines={1}>{row.display_name}</Text>
-                          {(row.rounds_played > 0 || row.rounds_forfeited > 0) && (
-                            <Text style={styles.standingSub}>
-                              {row.rounds_played} {row.rounds_played === 1 ? 'round' : 'rounds'} played
-                              {row.rounds_forfeited > 0
-                                ? ` · ${row.rounds_forfeited} forfeit${row.rounds_forfeited === 1 ? '' : 's'}`
-                                : ''}
-                            </Text>
-                          )}
-                        </View>
-                        {row.user_id === league?.admin_user_id && (
-                          <Text style={styles.commBadge}>COMM</Text>
-                        )}
-                        <Text style={styles.standingPts}>{row.total_points}</Text>
-                      </View>
-                    ))
                   )}
 
-                  {spectators.length > 0 && (
-                    <View style={styles.spectatorSection}>
-                      <Text style={styles.spectatorSectionTitle}>SPECTATORS</Text>
-                      {spectators.map((row) => (
-                        <View key={row.user_id} style={styles.spectatorRow}>
+                  {completedRounds.length > 0 && incompleteRounds.length === 0 && (
+                    <Text style={styles.completedRoundsSectionTitle}>Completed rounds</Text>
+                  )}
+
+                  {completedRounds.map((round) => renderRoundCard(round))}
+                </>
+              )}
+
+              {isCommissioner && season.status === 'active' && (
+                <TouchableOpacity
+                  style={styles.addRoundBtn}
+                  onPress={() => setCreatingRound(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.addRoundBtnIcon}>+</Text>
+                  <Text style={styles.addRoundBtnText}>Add Round</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {/* ── Standings tab ── */}
+          {tab === 'standings' && (
+            <View style={styles.section}>
+              <Text style={styles.standingsHint}>
+                Totals include completed rounds only — they update after each round&apos;s voting deadline passes.
+              </Text>
+              {(() => {
+                const participants = standingsWithRank.filter((r) => r.member_role !== 'spectator');
+                const spectators = standingsWithRank.filter((r) => r.member_role === 'spectator');
+                return (
+                  <>
+                    {participants.length === 0 ? (
+                      <View style={styles.empty}>
+                        <Text style={styles.emptyText}>No standings yet.</Text>
+                      </View>
+                    ) : (
+                      participants.map((row) => (
+                        <View key={row.user_id} style={styles.standingRow}>
+                          <Text style={styles.standingRank}>{row.displayRank}</Text>
                           <View style={styles.avatar}>
                             <Text style={styles.avatarText}>{row.display_name[0]?.toUpperCase() ?? '?'}</Text>
                           </View>
-                          <Text style={styles.spectatorName} numberOfLines={1}>{row.display_name}</Text>
+                          <View style={styles.standingMeta}>
+                            <Text style={styles.standingName} numberOfLines={1}>{row.display_name}</Text>
+                            {(row.rounds_played > 0 || row.rounds_forfeited > 0) && (
+                              <Text style={styles.standingSub}>
+                                {row.rounds_played} {row.rounds_played === 1 ? 'round' : 'rounds'} played
+                                {row.rounds_forfeited > 0
+                                  ? ` · ${row.rounds_forfeited} forfeit${row.rounds_forfeited === 1 ? '' : 's'}`
+                                  : ''}
+                              </Text>
+                            )}
+                          </View>
                           {row.user_id === league?.admin_user_id && (
                             <Text style={styles.commBadge}>COMM</Text>
                           )}
+                          <Text style={styles.standingPts}>{row.total_points}</Text>
                         </View>
-                      ))}
-                    </View>
-                  )}
-                </>
-              );
-            })()}
-          </View>
-        )}
+                      ))
+                    )}
+
+                    {spectators.length > 0 && (
+                      <View style={styles.spectatorSection}>
+                        <Text style={styles.spectatorSectionTitle}>SPECTATORS</Text>
+                        {spectators.map((row) => (
+                          <View key={row.user_id} style={styles.spectatorRow}>
+                            <View style={styles.avatar}>
+                              <Text style={styles.avatarText}>{row.display_name[0]?.toUpperCase() ?? '?'}</Text>
+                            </View>
+                            <Text style={styles.spectatorName} numberOfLines={1}>{row.display_name}</Text>
+                            {row.user_id === league?.admin_user_id && (
+                              <Text style={styles.commBadge}>COMM</Text>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </>
+                );
+              })()}
+            </View>
+          )}
+        </View>
       </ScrollView>
 
       {/* ── Season edit modal ── */}
@@ -809,26 +815,64 @@ export function SeasonScreen({ seasonId, initialTab }: { seasonId: string; initi
 }
 
 const styles = StyleSheet.create({
-  screenRoot: { flex: 1, backgroundColor: '#000' },
-  centered: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
-  mutedText: { color: '#555', fontSize: 15 },
+  screenRoot: { flex: 1, backgroundColor: THEME.bg },
+  centered: { flex: 1, backgroundColor: THEME.bg, alignItems: 'center', justifyContent: 'center' },
+  mutedText: { color: THEME.muted, fontSize: 15, fontFamily: THEME.fonts.sansMedium },
 
-  root: { backgroundColor: '#000', padding: 24, paddingBottom: 48, gap: 20 },
-  editBtn: { fontSize: 13, color: '#888', fontWeight: '600' },
+  root: { backgroundColor: THEME.bg, gap: 20 },
+  pagePad: { paddingHorizontal: 22, gap: 16 },
 
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  pageTitle: { fontSize: 28, fontWeight: '800', color: '#fff', flex: 1 },
+  headerActionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
+  },
+  headerActionText: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 12,
+    color: THEME.ink,
+  },
+
+  seasonMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  seasonMeta: {
+    fontFamily: THEME.fonts.serifItalic,
+    fontSize: 13,
+    color: THEME.muted,
+    flex: 1,
+  },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  statusActive: { backgroundColor: '#1DB95422' },
-  statusDone: { backgroundColor: '#33333388' },
-  statusText: { fontSize: 10, fontWeight: '800', letterSpacing: 1, color: '#1DB954' },
-  seasonMeta: { fontSize: 13, color: '#555', marginTop: -12 },
+  statusActive: { backgroundColor: 'rgba(176,42,42,0.12)' },
+  statusDone: { backgroundColor: 'rgba(11,11,11,0.06)' },
+  statusText: {
+    fontSize: 10,
+    fontFamily: THEME.fonts.sansBold,
+    letterSpacing: 1,
+    color: THEME.accent,
+  },
 
   // Tab bar
-  tabBar: { flexDirection: 'row', backgroundColor: '#111', borderRadius: 10, padding: 3, gap: 3 },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: THEME.surface,
+    borderRadius: 10,
+    padding: 3,
+    gap: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
+  },
   tabBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
-  tabBtnActive: { backgroundColor: '#1a1a1a' },
-  tabBtnText: { fontSize: 13, fontWeight: '600', color: '#555' },
+  tabBtnActive: { backgroundColor: THEME.ink },
+  tabBtnText: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 13,
+    color: THEME.muted,
+  },
   tabBtnTextActive: { color: '#fff' },
 
   section: { gap: 12 },
@@ -840,37 +884,64 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 4,
   },
-  completedRoundsBreakLine: { flex: 1, height: 1, backgroundColor: '#2a2a2a' },
+  completedRoundsBreakLine: { flex: 1, height: 1, backgroundColor: THEME.rule },
   completedRoundsBreakLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    color: '#666',
+    ...THEME.text.seasonsLabel,
   },
   completedRoundsSectionTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
-    color: '#666',
+    ...THEME.text.seasonsLabel,
     marginBottom: 4,
     marginTop: 2,
   },
 
   empty: { paddingVertical: 24, alignItems: 'center' },
-  emptyText: { fontSize: 14, color: '#444' },
+  emptyText: { fontSize: 14, color: THEME.muted, fontFamily: THEME.fonts.sansMedium },
 
-  roundCard: { backgroundColor: '#111', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#222', gap: 8 },
+  roundCard: {
+    backgroundColor: THEME.surface,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
+    gap: 8,
+  },
   roundHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   roundHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  roundNumber: { fontSize: 13, fontWeight: '800', color: '#fff' },
-  roundStatus: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  roundEditBtn: { backgroundColor: '#1a1a1a', borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#2a2a2a' },
-  roundEditBtnText: { fontSize: 11, color: '#888', fontWeight: '600' },
-  roundPrompt: { fontSize: 15, color: '#ccc', lineHeight: 20, fontWeight: '700' },
-  roundDescription: { fontSize: 13, color: '#777', lineHeight: 18, marginTop: -2 },
+  roundNumber: {
+    ...THEME.text.seasonsLabel,
+    color: THEME.ink,
+  },
+  roundStatus: {
+    fontSize: 10,
+    fontFamily: THEME.fonts.sansBold,
+    letterSpacing: 1,
+  },
+  roundEditBtn: {
+    backgroundColor: THEME.bg,
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
+  },
+  roundEditBtnText: {
+    fontSize: 11,
+    color: THEME.muted,
+    fontFamily: THEME.fonts.sansSemi,
+  },
+  roundPrompt: {
+    ...THEME.text.playlistTilePrompt,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  roundDescription: {
+    ...THEME.text.sectionMeta,
+    lineHeight: 18,
+    marginTop: -2,
+  },
   roundDates: { gap: 2, marginTop: 4 },
-  dateLabel: { fontSize: 11, color: '#555' },
-  dateValue: { color: '#888' },
+  dateLabel: { fontSize: 11, color: THEME.muted, fontFamily: THEME.fonts.sansMedium },
+  dateValue: { color: THEME.ink, fontFamily: THEME.fonts.sansSemi },
 
   // Add round CTA
   addRoundBtn: {
@@ -881,46 +952,54 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: '#333',
+    borderColor: THEME.rule,
     borderRadius: 12,
     padding: 16,
     marginTop: 4,
   },
   addRoundBtnIcon: {
     fontSize: 18,
-    color: '#1DB954',
-    fontWeight: '800',
+    color: THEME.accent,
+    fontFamily: THEME.fonts.sansBold,
     lineHeight: 20,
   },
   addRoundBtnText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#1DB954',
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.accent,
     letterSpacing: 0.3,
   },
 
   forfeitFootnote: {
     fontSize: 11,
-    color: '#777',
-    fontStyle: 'italic',
+    color: THEME.muted,
+    fontFamily: THEME.fonts.serifItalic,
     marginTop: 2,
   },
 
-  // Submission status on active round cards
-  submissionStatus: { gap: 6, paddingTop: 4, borderTopWidth: 1, borderTopColor: '#1a1a1a', marginTop: 2 },
-  avatarStackRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatarStackLabel: { fontSize: 11, fontWeight: '700', width: 90 },
-  avatarStackAvatars: { flexDirection: 'row', alignItems: 'center' },
-  avatarStackBubble: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#2a2a2a', borderWidth: 1.5, borderColor: '#111', alignItems: 'center', justifyContent: 'center' },
-  avatarStackInitial: { fontSize: 10, fontWeight: '700', color: '#fff' },
-  avatarStackOverflow: { backgroundColor: '#222' },
-  avatarStackOverflowText: { fontSize: 9, fontWeight: '700', color: '#888' },
+  // Avatar status on active round cards
+  submissionStatus: {
+    gap: 6,
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: THEME.rule,
+    marginTop: 2,
+  },
+  avatarStackLine: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatarStackLabel: {
+    fontSize: 11,
+    fontFamily: THEME.fonts.sansBold,
+    width: 90,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
 
   standingsHint: {
     fontSize: 12,
-    color: '#666',
+    color: THEME.muted,
     lineHeight: 17,
     marginBottom: 4,
+    fontFamily: THEME.fonts.serifItalic,
   },
   standingRow: {
     flexDirection: 'row',
@@ -928,68 +1007,130 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 10,
     paddingHorizontal: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#151515',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: THEME.rule,
   },
   standingRank: {
     width: 26,
     fontSize: 14,
-    fontWeight: '800',
-    color: '#666',
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.muted,
     textAlign: 'center',
   },
   standingMeta: { flex: 1, minWidth: 0 },
-  standingName: { fontSize: 15, fontWeight: '600', color: '#fff' },
-  standingSub: { fontSize: 11, color: '#555', marginTop: 3 },
-  standingBadges: { flexDirection: 'row', gap: 6, alignItems: 'center', flexShrink: 0 },
+  standingName: {
+    fontSize: 15,
+    fontFamily: THEME.fonts.sansSemi,
+    color: THEME.ink,
+  },
+  standingSub: {
+    fontSize: 11,
+    color: THEME.muted,
+    marginTop: 3,
+    fontFamily: THEME.fonts.sansMedium,
+  },
   standingPts: {
     fontSize: 17,
-    fontWeight: '800',
-    color: '#1DB954',
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.accent,
     minWidth: 44,
     textAlign: 'right',
   },
 
-  memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
-  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#222', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  memberName: { flex: 1, fontSize: 15, color: '#fff', fontWeight: '500' },
-  memberBadges: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  commBadge: { fontSize: 9, fontWeight: '800', color: '#1DB954', letterSpacing: 1 },
-  roleBadge: { fontSize: 9, fontWeight: '700', color: '#555', letterSpacing: 1 },
-  roleBadgeSpectator: { color: '#444' },
+  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: THEME.faint, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 15, fontFamily: THEME.fonts.sansBold, color: '#fff' },
+  commBadge: {
+    fontSize: 9,
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.accent,
+    letterSpacing: 1,
+  },
   spectatorSection: { marginTop: 16, gap: 8 },
-  spectatorSectionTitle: { fontSize: 11, fontWeight: '700', color: '#444', letterSpacing: 1, textTransform: 'uppercase' },
+  spectatorSectionTitle: {
+    ...THEME.text.seasonsLabel,
+  },
   spectatorRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4, opacity: 0.6 },
-  spectatorName: { flex: 1, fontSize: 14, color: '#888', fontWeight: '500' },
+  spectatorName: { flex: 1, fontSize: 14, color: THEME.muted, fontFamily: THEME.fonts.sansMedium },
 
   // Stepper
   stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
-  stepBtn: { width: 44, height: 44, backgroundColor: '#111', borderWidth: 1, borderColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
-  stepBtnTxt: { fontSize: 22, color: '#fff', fontWeight: '300' },
-  stepVal: { minWidth: 52, textAlign: 'center', fontSize: 20, fontWeight: '700', color: '#fff' },
+  stepBtn: {
+    width: 44,
+    height: 44,
+    backgroundColor: THEME.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  stepBtnTxt: { fontSize: 22, color: THEME.ink, fontFamily: THEME.fonts.sansMedium },
+  stepVal: {
+    minWidth: 52,
+    textAlign: 'center',
+    fontSize: 20,
+    fontFamily: THEME.fonts.sansBold,
+    color: THEME.ink,
+  },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 },
-  stepperUnit: { fontSize: 14, color: '#555' },
+  stepperUnit: { fontSize: 14, color: THEME.muted, fontFamily: THEME.fonts.sansMedium },
 
   // Date picker
-  dateField: { backgroundColor: '#111', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#2a2a2a', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  dateFieldText: { fontSize: 15, color: '#fff' },
+  dateField: {
+    backgroundColor: THEME.surface,
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  dateFieldText: { fontSize: 15, color: THEME.ink, fontFamily: THEME.fonts.sansMedium },
   dateFieldIcon: { fontSize: 16 },
-  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  pickerSheet: { backgroundColor: '#1a1a1a', borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 32 },
-  pickerToolbar: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#2a2a2a' },
-  pickerCancel: { fontSize: 15, color: '#888' },
-  pickerDone: { fontSize: 15, color: '#1DB954', fontWeight: '700' },
+  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+  pickerSheet: { backgroundColor: THEME.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingBottom: 32 },
+  pickerToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: THEME.rule,
+  },
+  pickerCancel: { fontSize: 15, color: THEME.muted, fontFamily: THEME.fonts.sansMedium },
+  pickerDone: { fontSize: 15, color: THEME.accent, fontFamily: THEME.fonts.sansBold },
 
   // Edit modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: '#0d0d0d', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1a1a1a' },
-  modalTitle: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  modalCancel: { fontSize: 15, color: '#888' },
-  modalSave: { fontSize: 15, color: '#1DB954', fontWeight: '700' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: THEME.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: THEME.rule,
+  },
+  modalTitle: { fontSize: 15, fontFamily: THEME.fonts.sansBold, color: THEME.ink },
+  modalCancel: { fontSize: 15, color: THEME.muted, fontFamily: THEME.fonts.sansMedium },
+  modalSave: { fontSize: 15, color: THEME.accent, fontFamily: THEME.fonts.sansBold },
   modalBody: { padding: 20, paddingBottom: 48, gap: 4 },
-  modalInput: { backgroundColor: '#111', borderRadius: 10, padding: 14, fontSize: 15, color: '#fff', borderWidth: 1, borderColor: '#2a2a2a', marginTop: 8 },
-  fieldLabel: { fontSize: 11, fontWeight: '800', color: '#555', letterSpacing: 1.2, textTransform: 'uppercase' },
-  fieldHint: { fontSize: 11, color: '#444', marginTop: 2 },
+  modalInput: {
+    backgroundColor: THEME.surface,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 15,
+    color: THEME.ink,
+    fontFamily: THEME.fonts.sans,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: THEME.rule,
+    marginTop: 8,
+  },
+  fieldLabel: {
+    ...THEME.text.seasonsLabel,
+  },
+  fieldHint: { fontSize: 11, color: THEME.muted, marginTop: 2, fontFamily: THEME.fonts.sansMedium },
 });

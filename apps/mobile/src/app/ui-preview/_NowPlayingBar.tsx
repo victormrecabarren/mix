@@ -1,17 +1,12 @@
-// TEMP: Apple Music–style floating mini-player pill.
+// Preview shim — wraps the real-app NowPlayingPill so the preview's home
+// screen keeps its (title, artist, hue, dual) prop shape while the actual
+// styling/behavior is sourced from `@/ui/playback/NowPlayingPill`.
 //
-// Targets the "expanded" state shown in the reference screenshot: it sits
-// just above the tab bar, pill-shaped with a frosted glass backdrop, artwork
-// on the left, track + artist in the middle, Play + Next icons on the right.
-//
-// The collapsed-on-scroll variant (smaller pill that tucks into the top
-// navigation) is intentionally out of scope for this pass — we'll revisit
-// it as its own component when we wire real playback state.
+// Promotion path: when the preview is retired, delete this file along with
+// the rest of `ui-preview/`. The real app already imports the pill directly.
 
-import { BlurView } from "expo-blur";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { CoverArt } from "./_CoverArt";
-import { v1 } from "./_tokens";
+import { useState } from "react";
+import { NowPlayingPill } from "@/ui/playback/NowPlayingPill";
 
 export function NowPlayingBar({
   title,
@@ -24,93 +19,16 @@ export function NowPlayingBar({
   hue: number;
   dual?: readonly [number, number];
 }) {
+  const [isPlaying, setIsPlaying] = useState(false);
   return (
-    <View style={styles.wrap}>
-      <BlurView intensity={55} tint="light" style={styles.pill}>
-        <View style={styles.pillInner}>
-          <CoverArt hue={hue} dual={dual} style={styles.art} />
-          <View style={styles.meta}>
-            <Text style={styles.title} numberOfLines={1}>
-              {title}
-            </Text>
-            <Text style={styles.artist} numberOfLines={1}>
-              {artist}
-            </Text>
-          </View>
-          <Pressable style={styles.iconBtn} hitSlop={8}>
-            {/* Play triangle */}
-            <View style={styles.playTriangle} />
-          </Pressable>
-          <Pressable style={styles.iconBtn} hitSlop={8}>
-            {/* Next / fast-forward — two triangles */}
-            <View style={styles.skipRow}>
-              <View style={styles.skipTriangle} />
-              <View style={[styles.skipTriangle, { marginLeft: 2 }]} />
-            </View>
-          </Pressable>
-        </View>
-      </BlurView>
-    </View>
+    <NowPlayingPill
+      title={title}
+      artist={artist}
+      hue={hue}
+      dual={dual}
+      isPlaying={isPlaying}
+      onPlayPause={() => setIsPlaying((v) => !v)}
+      onNext={() => {}}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 10 },
-  pill: {
-    borderRadius: 32,
-    overflow: "hidden",
-    // Very light glass edge that picks up on bright backgrounds.
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(11,11,11,0.06)",
-  },
-  pillInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: "rgba(246,241,232,0.55)",
-  },
-  art: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-  },
-  meta: { flex: 1, minWidth: 0 },
-  title: {
-    ...v1.text.nowPlayingTitle,
-  },
-  artist: {
-    ...v1.text.nowPlayingArtist,
-    marginTop: 1,
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  // CSS-only triangle for Play icon (rotated 90° so it points right).
-  playTriangle: {
-    width: 0,
-    height: 0,
-    borderTopWidth: 9,
-    borderBottomWidth: 9,
-    borderLeftWidth: 14,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderLeftColor: v1.ink,
-    marginLeft: 2,
-  },
-  skipRow: { flexDirection: "row", alignItems: "center" },
-  skipTriangle: {
-    width: 0,
-    height: 0,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderLeftWidth: 11,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderLeftColor: v1.ink,
-  },
-});
