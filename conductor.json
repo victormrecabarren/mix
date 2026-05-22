@@ -1,6 +1,5 @@
 {
   "scripts": {
-    "setup": "pnpm install && pnpm --filter @mix/mobile prebuild",
-    "run": "pnpm --filter @mix/mobile dev"
+    "setup": "bash scripts/ensure-metro.sh && pnpm install"
   }
 }
