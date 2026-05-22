@@ -17,7 +17,7 @@
     "android": "pnpm --filter @mix/mobile android",
     "ios": "pnpm --filter @mix/mobile ios",
     "ios:sim": "pnpm --filter @mix/mobile ios:sim",
-    "setup": "pnpm --filter @mix/mobile setup"
+    "setup": "pnpm install && pnpm --filter @mix/mobile prebuild"
   },
   "devDependencies": {
     "turbo": "^2.5.3"
