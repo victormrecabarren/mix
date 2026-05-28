@@ -13,7 +13,9 @@
     "setup": "pnpm prebuild",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "ios:sim": "expo run:ios"
+    "ios:sim": "expo run:ios",
+    "ios:device": "expo run:ios --device 00008150-001A310801F0401C",
+    "vic": "expo run:ios --device 00008150-001A310801F0401C"
   },
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.4.1",
