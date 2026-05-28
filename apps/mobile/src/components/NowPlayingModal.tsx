@@ -40,10 +40,18 @@ function SeekBar({
   onSeek: (ms: number) => void;
 }) {
   const [barWidth, setBarWidth] = useState(1);
-  const progress = durationMs > 0 ? Math.min(positionMs / durationMs, 1) : 0;
-  const fillWidth = progress * barWidth;
+  const [dragX, setDragX] = useState<number | null>(null);
 
-  const handleTouch = useCallback(
+  const displayProgress = dragX !== null
+    ? Math.max(0, Math.min(dragX / barWidth, 1))
+    : (durationMs > 0 ? Math.min(positionMs / durationMs, 1) : 0);
+  const fillWidth = displayProgress * barWidth;
+
+  const displayMs = dragX !== null
+    ? Math.round(displayProgress * durationMs)
+    : positionMs;
+
+  const commitSeek = useCallback(
     (x: number) => {
       const ratio = Math.max(0, Math.min(x / barWidth, 1));
       onSeek(Math.round(ratio * durationMs));
@@ -58,8 +66,20 @@ function SeekBar({
         onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
         onStartShouldSetResponder={() => true}
         onMoveShouldSetResponder={() => true}
-        onResponderGrant={(e) => handleTouch(e.nativeEvent.locationX)}
-        onResponderMove={(e) => handleTouch(e.nativeEvent.locationX)}
+        // Refuse any parent's request to steal the gesture mid-drag. Without
+        // this, the SwipeSheet's pan responder grabs the touch and fires
+        // onResponderTerminate on us, which would clear dragX for one frame
+        // and snap the thumb back to the underlying positionMs — the
+        // flicker-back-to-start behavior. Releasing the touch still triggers
+        // onResponderRelease normally.
+        onResponderTerminationRequest={() => false}
+        onResponderGrant={(e) => setDragX(e.nativeEvent.locationX)}
+        onResponderMove={(e) => setDragX(e.nativeEvent.locationX)}
+        onResponderRelease={(e) => {
+          commitSeek(e.nativeEvent.locationX);
+          setDragX(null);
+        }}
+        onResponderTerminate={() => setDragX(null)}
       >
         <View style={seekStyles.track}>
           <View style={[seekStyles.fill, { width: fillWidth }]} />
@@ -67,7 +87,7 @@ function SeekBar({
         <View style={[seekStyles.thumb, { left: Math.max(0, fillWidth - 6) }]} />
       </View>
       <View style={seekStyles.labels}>
-        <Text style={seekStyles.time}>{formatMs(positionMs)}</Text>
+        <Text style={seekStyles.time}>{formatMs(displayMs)}</Text>
         <Text style={seekStyles.time}>{durationMs > 0 ? formatMs(durationMs) : '--:--'}</Text>
       </View>
     </View>
@@ -275,7 +295,10 @@ export function NowPlayingModal({ visible, onClose }: { visible: boolean; onClos
   } = usePlayback();
 
   const hasTrack = currentIndex !== null;
-  const hasPrevious = currentIndex !== null && currentIndex > 0;
+  // Back is enabled whenever a track is loaded — `previous()` now does the
+  // standard music-player thing of restarting from 0 if pressed after the
+  // first ~2s of playback, falling through to a previous track otherwise.
+  const canPrevious = currentIndex !== null;
   const hasNext = currentIndex !== null && currentIndex < playlist.length - 1;
 
   return (
@@ -303,7 +326,7 @@ export function NowPlayingModal({ visible, onClose }: { visible: boolean; onClos
             <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
 
             <View style={modalStyles.controls}>
-              <ControlBtn label="⏮" onPress={previous} disabled={!hasPrevious} />
+              <ControlBtn label="⏮" onPress={previous} disabled={!canPrevious} />
               <ControlBtn
                 label={isPlaying ? '⏸' : '▶'}
                 onPress={isPlaying ? pause : resume}

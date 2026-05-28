@@ -189,8 +189,26 @@ function distributePoints(total, count, maxPerTrack) {
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 async function setupPlayers(env, args) {
-  const leagueId = args.league;
-  if (!leagueId) { console.error('Usage: setup-players --league <id>'); process.exit(1); }
+  let leagueId = args.league;
+  // Convenience: accept --season <id> and resolve to its league. Saves a
+  // separate lookup when you just got a season id from somewhere and want
+  // A/B/C added to whichever league it belongs to.
+  if (!leagueId && args.season) {
+    const seasonRes = await sb(
+      env,
+      `/rest/v1/seasons?id=eq.${args.season}&select=league_id&limit=1`,
+    );
+    leagueId = seasonRes.data?.[0]?.league_id;
+    if (!leagueId) {
+      console.error(`Could not find league for season ${args.season}`);
+      process.exit(1);
+    }
+    console.log(`Resolved season ${args.season} → league ${leagueId}`);
+  }
+  if (!leagueId) {
+    console.error('Usage: setup-players --league <id> | --season <id>');
+    process.exit(1);
+  }
 
   const state = loadState();
   if (!state.players) state.players = {};
@@ -561,6 +579,37 @@ async function registerPlayer(env, args) {
 
 // ─── Active round / rounds list ──────────────────────────────────────────────
 
+// Shared internal: same selection as activeRound below + the app's
+// getActiveRoundForLeague. Returns { season, round } or { season, round: null }
+// when the season exists but no rounds are open. Exits the process with a
+// useful message if the league has no active season — callers can assume the
+// returned shape is valid.
+async function getActiveSeasonAndRound(env, leagueId) {
+  const nowIso = new Date().toISOString();
+  const seasonRes = await sb(
+    env,
+    `/rest/v1/seasons?select=id,name&league_id=eq.${leagueId}&status=eq.active&limit=1`,
+  );
+  if (!seasonRes.ok) {
+    console.error('Season lookup failed:', seasonRes.data);
+    process.exit(1);
+  }
+  const season = seasonRes.data?.[0];
+  if (!season) {
+    console.error(`No active season for league ${leagueId}`);
+    process.exit(1);
+  }
+  const roundRes = await sb(
+    env,
+    `/rest/v1/rounds?select=id,round_number,prompt,submission_deadline_at,voting_deadline_at&season_id=eq.${season.id}&voting_deadline_at=gt.${encodeURIComponent(nowIso)}&order=round_number.asc&limit=1`,
+  );
+  if (!roundRes.ok) {
+    console.error('Round lookup failed:', roundRes.data);
+    process.exit(1);
+  }
+  return { season, round: roundRes.data?.[0] ?? null };
+}
+
 // Mirrors the app's `getActiveRoundForLeague` selection: first round in the
 // active season whose voting hasn't closed yet, ordered by round_number asc.
 // Prints round id, number, prompt, and both deadlines so you can see which
@@ -572,33 +621,7 @@ async function activeRound(env, args) {
     console.error('Usage: node scripts/test.mjs active-round --league <id>');
     process.exit(1);
   }
-  const nowIso = new Date().toISOString();
-
-  // Active season for the league.
-  const seasonRes = await sb(
-    env,
-    `/rest/v1/seasons?select=id,name&league_id=eq.${leagueId}&status=eq.active&limit=1`,
-  );
-  if (!seasonRes.ok) {
-    console.error('Season lookup failed:', seasonRes.data);
-    process.exit(1);
-  }
-  const season = seasonRes.data?.[0];
-  if (!season) {
-    console.log('No active season for league.');
-    return;
-  }
-
-  // First round whose voting is still open.
-  const roundRes = await sb(
-    env,
-    `/rest/v1/rounds?select=id,round_number,prompt,submission_deadline_at,voting_deadline_at&season_id=eq.${season.id}&voting_deadline_at=gt.${encodeURIComponent(nowIso)}&order=round_number.asc&limit=1`,
-  );
-  if (!roundRes.ok) {
-    console.error('Round lookup failed:', roundRes.data);
-    process.exit(1);
-  }
-  const round = roundRes.data?.[0];
+  const { season, round } = await getActiveSeasonAndRound(env, leagueId);
   console.log(`Active season: ${season.name} (${season.id})`);
   if (!round) {
     console.log('No active round (all rounds in this season have closed).');
@@ -610,6 +633,86 @@ async function activeRound(env, args) {
   console.log(`  prompt:                ${round.prompt}`);
   console.log(`  submission_deadline:   ${round.submission_deadline_at}`);
   console.log(`  voting_deadline:       ${round.voting_deadline_at}`);
+}
+
+// Run submit for players A, B, C against the league's active round. Convenience
+// wrapper — equivalent to looking up the active round and running submit three
+// times. Skips any player that errors so one missing player doesn't block the
+// rest of the batch.
+async function allSubmit(env, args) {
+  const leagueId = args.league;
+  if (!leagueId) {
+    console.error('Usage: all-submit --league <id>');
+    process.exit(1);
+  }
+  const { round } = await getActiveSeasonAndRound(env, leagueId);
+  if (!round) {
+    console.error('No active round to submit to.');
+    process.exit(1);
+  }
+  console.log(`Active round: R${round.round_number} (${round.id})`);
+  for (const key of CORE_PLAYERS) {
+    console.log(`\n[Player ${key}] submitting…`);
+    try {
+      await submitForPlayer(env, { player: key, round: round.id });
+    } catch (e) {
+      console.error(`  ✗ Player ${key} submit failed:`, e?.message ?? e);
+    }
+  }
+}
+
+// Run vote for players A, B, C against the league's active round.
+async function allVote(env, args) {
+  const leagueId = args.league;
+  if (!leagueId) {
+    console.error('Usage: all-vote --league <id>');
+    process.exit(1);
+  }
+  const { round } = await getActiveSeasonAndRound(env, leagueId);
+  if (!round) {
+    console.error('No active round to vote on.');
+    process.exit(1);
+  }
+  console.log(`Active round: R${round.round_number} (${round.id})`);
+  for (const key of CORE_PLAYERS) {
+    console.log(`\n[Player ${key}] voting…`);
+    try {
+      await voteForPlayer(env, { player: key, round: round.id });
+    } catch (e) {
+      console.error(`  ✗ Player ${key} vote failed:`, e?.message ?? e);
+    }
+  }
+}
+
+// Fetch the season's invite_token and print the mix:// join link. Same format
+// the league screen's Share button uses — paste it into the device's clipboard
+// and the deep-link handler in app/_layout.tsx will route to the join screen.
+async function inviteLink(env, args) {
+  const seasonId = args.season;
+  if (!seasonId) {
+    console.error('Usage: invite-link --season <id>');
+    process.exit(1);
+  }
+  const res = await sb(
+    env,
+    `/rest/v1/seasons?id=eq.${seasonId}&select=name,league_id,invite_token&limit=1`,
+  );
+  if (!res.ok) {
+    console.error('Season lookup failed:', res.data);
+    process.exit(1);
+  }
+  const season = res.data?.[0];
+  if (!season) {
+    console.error(`Season ${seasonId} not found.`);
+    process.exit(1);
+  }
+  if (!season.invite_token) {
+    console.error('Season has no invite_token.');
+    process.exit(1);
+  }
+  console.log(`Season:  ${season.name}`);
+  console.log(`League:  ${season.league_id}`);
+  console.log(`Invite:  mix://join?token=${season.invite_token}`);
 }
 
 // Dump all rounds in a season with their phase. Handy when "Previous round
@@ -651,26 +754,32 @@ const commands = {
   advance:            advanceRound,
   submit:             submitForPlayer,
   vote:               voteForPlayer,
+  'all-submit':       allSubmit,
+  'all-vote':         allVote,
   'close-voting':     closeVoting,
   'round-results':    roundResults,
   'active-round':     activeRound,
   rounds:             listRounds,
+  'invite-link':      inviteLink,
 };
 
 const fn = commands[command];
 if (!fn) {
   console.log('Usage: node scripts/test.mjs <command> [options]');
   console.log('');
-  console.log('  setup-players  --league <id>');
+  console.log('  setup-players  --league <id> | --season <id>');
   console.log('  create-user    --player <D|E>');
   console.log('  join           --player <A-E> --invite <url-or-token>');
   console.log('  advance        --round <id> [--subs-close <s>] [--vote-close <s>]');
   console.log('  submit         --player <A-E> --round <id>');
   console.log('  vote           --player <A-E> --round <id>');
+  console.log('  all-submit     --league <id>   (runs submit for A, B, C against active round)');
+  console.log('  all-vote       --league <id>   (runs vote   for A, B, C against active round)');
   console.log('  close-voting   [--round <id>]');
   console.log('  round-results  --round <id>');
   console.log('  active-round   --league <id>');
   console.log('  rounds         --season <id>');
+  console.log('  invite-link    --season <id>');
   process.exit(1);
 }
 

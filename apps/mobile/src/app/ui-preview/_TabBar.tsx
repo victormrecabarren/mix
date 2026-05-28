@@ -124,3 +124,6 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 });
+
+// Stub default export so expo-router stops treating this helper as a route.
+export default function PreviewHelperStub() { return null; }

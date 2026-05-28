@@ -29,10 +29,6 @@ import { SoundCloudPlayerProvider } from "@/playback/SoundCloudWebPlayer";
 import { PlaybackProvider } from "@/playback/PlaybackContext";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
 
-// TODO: dev-only nuke, remove before shipping
-import { Image } from "expo-image";
-Image.clearMemoryCache();
-Image.clearDiskCache();
 // UI preview design playground — kept for style/state experimentation.
 // Navigate to it via the [DEV] button in the Profile tab.
 // To permanently remove:

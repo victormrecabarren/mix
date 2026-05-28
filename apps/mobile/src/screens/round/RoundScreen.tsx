@@ -65,6 +65,11 @@ import {
   getSpotifyTrack,
   extractSpotifyTrackId,
 } from "@/services/spotifySearch";
+import {
+  isSoundCloudTrackUrl,
+  resolveSoundCloudTrack,
+  type SoundCloudTrack,
+} from "@/services/soundcloudResolve";
 import { THEME } from "@/ui/theme";
 import { PageHeader } from "@/ui/PageHeader";
 import { HeroBanner } from "@/ui/cards/HeroBanner";
@@ -109,7 +114,9 @@ type Submission = {
   track_title: string;
   track_artist: string;
   track_artwork_url: string | null;
+  track_source: "spotify" | "soundcloud";
   spotify_track_id: string | null;
+  soundcloud_track_url: string | null;
   track_isrc: string;
   comment: string | null;
 };
@@ -124,12 +131,39 @@ type SpotifyTrack = {
   popularity: number;
 };
 
+// Discriminated track shape used by the picker UI for both search results and
+// the committed slot. Whichever streaming source the user picked, the
+// downstream submit logic dispatches on `source` to populate the right DB
+// columns. The Spotify branch keeps the full SDK shape so we have ISRC,
+// popularity, etc. on hand for analytics. The SoundCloud branch only has what
+// oEmbed gives us.
+type PickedTrack =
+  | { source: "spotify"; data: SpotifyTrack }
+  | { source: "soundcloud"; data: SoundCloudTrack };
+
+function pickedId(t: PickedTrack): string {
+  return t.source === "spotify" ? t.data.id : t.data.url;
+}
+function pickedTitle(t: PickedTrack): string {
+  return t.source === "spotify" ? t.data.name : t.data.title;
+}
+function pickedArtist(t: PickedTrack): string {
+  return t.source === "spotify"
+    ? t.data.artists.map((a) => a.name).join(", ")
+    : t.data.artist;
+}
+function pickedArtwork(t: PickedTrack): string | null {
+  return t.source === "spotify"
+    ? (t.data.album.images[0]?.url ?? null)
+    : t.data.artworkUrl;
+}
+
 type DraftSubmission = {
   submissionId: string | null;
-  track: SpotifyTrack | null;
+  track: PickedTrack | null;
   comment: string;
   searchInput: string;
-  searchResults: SpotifyTrack[];
+  searchResults: PickedTrack[];
   isSearching: boolean;
   isEditingTrack: boolean;
 };
@@ -145,23 +179,39 @@ function formatDeadline(iso: string) {
   });
 }
 
-function submissionToTrack(submission: Submission): SpotifyTrack {
+function submissionToTrack(submission: Submission): PickedTrack {
+  if (submission.track_source === "soundcloud" && submission.soundcloud_track_url) {
+    return {
+      source: "soundcloud",
+      data: {
+        url: submission.soundcloud_track_url,
+        title: submission.track_title,
+        artist: submission.track_artist,
+        artworkUrl: submission.track_artwork_url,
+      },
+    };
+  }
+  // Default: Spotify-shaped (covers existing rows whose track_source defaults
+  // to 'spotify' even if the column wasn't populated yet).
   return {
-    id: submission.spotify_track_id ?? submission.id,
-    name: submission.track_title,
-    artists: submission.track_artist
-      .split(",")
-      .map((artist) => ({ name: artist.trim() }))
-      .filter((artist) => artist.name.length > 0),
-    album: {
-      name: "",
-      images: submission.track_artwork_url
-        ? [{ url: submission.track_artwork_url }]
-        : [],
+    source: "spotify",
+    data: {
+      id: submission.spotify_track_id ?? submission.id,
+      name: submission.track_title,
+      artists: submission.track_artist
+        .split(",")
+        .map((artist) => ({ name: artist.trim() }))
+        .filter((artist) => artist.name.length > 0),
+      album: {
+        name: "",
+        images: submission.track_artwork_url
+          ? [{ url: submission.track_artwork_url }]
+          : [],
+      },
+      duration_ms: 0,
+      external_ids: { isrc: submission.track_isrc },
+      popularity: 0,
     },
-    duration_ms: 0,
-    external_ids: { isrc: submission.track_isrc },
-    popularity: 0,
   };
 }
 
@@ -185,25 +235,35 @@ function createDraftSubmission(
 
 function comparableDraft(draft: DraftSubmission) {
   return {
-    trackId: draft.track?.id ?? null,
+    trackId: draft.track ? pickedId(draft.track) : null,
     comment: draft.comment.trim(),
   };
 }
 
-// Submission rows are spotify-only today. Once SoundCloud is wired into the
-// data model we'll dispatch on the URI source here.
-// TODO: redesign in v2 — support multi-source submissions.
 function submissionToPlaylistTrack(s: Submission): PlaylistTrack | null {
-  if (!s.spotify_track_id) return null;
-  return {
-    id: s.id,
-    source: "spotify",
-    uri: normalizeSpotifyTrackUri(s.spotify_track_id),
-    title: s.track_title,
-    artist: s.track_artist,
-    artworkUrl: s.track_artwork_url ?? "",
-    durationMs: 0,
-  };
+  if (s.track_source === "soundcloud" && s.soundcloud_track_url) {
+    return {
+      id: s.id,
+      source: "soundcloud",
+      uri: s.soundcloud_track_url,
+      title: s.track_title,
+      artist: s.track_artist,
+      artworkUrl: s.track_artwork_url ?? "",
+      durationMs: 0,
+    };
+  }
+  if (s.spotify_track_id) {
+    return {
+      id: s.id,
+      source: "spotify",
+      uri: normalizeSpotifyTrackUri(s.spotify_track_id),
+      title: s.track_title,
+      artist: s.track_artist,
+      artworkUrl: s.track_artwork_url ?? "",
+      durationMs: 0,
+    };
+  }
+  return null;
 }
 
 function shuffled<T>(arr: T[]): T[] {
@@ -392,10 +452,35 @@ function SubmissionPhase({
       setSearchState(slotIndex, { isSearching: true });
 
       try {
-        const linkedTrackId = extractSpotifyTrackId(trimmed);
-        const nextResults = linkedTrackId
-          ? [await getSpotifyTrack(linkedTrackId)]
-          : await searchSpotifyTracks(trimmed);
+        let nextResults: PickedTrack[];
+        // Anything that looks like a URL is treated as URL-mode: we never run
+        // a Spotify text search on a link (otherwise pasting "https://..."
+        // returns garbage Spotify hits matching the literal URL string).
+        const looksLikeUrl = /^https?:\/\//i.test(trimmed);
+        if (isSoundCloudTrackUrl(trimmed)) {
+          // SoundCloud link paste (including share short links) — resolve via
+          // oEmbed and surface as a single preview result.
+          const sc = await resolveSoundCloudTrack(trimmed);
+          nextResults = [{ source: "soundcloud", data: sc }];
+        } else if (looksLikeUrl) {
+          // Could still be a Spotify track URL — handle that. Any other URL
+          // (Apple Music, YouTube, random) returns an empty result set rather
+          // than falling through to text search.
+          const spotifyId = extractSpotifyTrackId(trimmed);
+          if (spotifyId) {
+            const t = await getSpotifyTrack(spotifyId);
+            nextResults = [{ source: "spotify", data: t }];
+          } else {
+            nextResults = [];
+          }
+        } else {
+          // Plain text query → Spotify search.
+          const spotifyResults = await searchSpotifyTracks(trimmed);
+          nextResults = spotifyResults.map((t) => ({
+            source: "spotify" as const,
+            data: t,
+          }));
+        }
 
         if (searchRequestIds.current[slotIndex] !== requestId) return;
         setSearchState(slotIndex, {
@@ -441,9 +526,13 @@ function SubmissionPhase({
     });
   };
 
-  const selectTrack = (slotIndex: number, track: SpotifyTrack) => {
+  const selectTrack = (slotIndex: number, track: PickedTrack) => {
+    const incomingId = pickedId(track);
     const duplicateSlot = drafts.findIndex(
-      (draft, i) => i !== slotIndex && draft.track?.id === track.id,
+      (draft, i) =>
+        i !== slotIndex &&
+        draft.track !== null &&
+        pickedId(draft.track) === incomingId,
     );
     if (duplicateSlot !== -1) {
       Alert.alert(
@@ -515,20 +604,35 @@ function SubmissionPhase({
     }
 
     const payload: SubmissionDraft[] = drafts
-      .filter((d) => d.track)
+      .filter((d): d is DraftSubmission & { track: PickedTrack } => !!d.track)
       .map((d) => {
-        const t = d.track as SpotifyTrack;
+        if (d.track.source === "spotify") {
+          const t = d.track.data;
+          return {
+            submissionId: d.submissionId,
+            track: {
+              source: "spotify" as const,
+              spotifyTrackId: t.id,
+              title: t.name,
+              artist: t.artists.map((a) => a.name).join(", "),
+              artworkUrl: t.album.images[0]?.url ?? null,
+              isrc: t.external_ids?.isrc ?? null,
+              albumName: t.album.name || null,
+              durationMs: t.duration_ms || null,
+              popularity: t.popularity || null,
+            },
+            comment: d.comment,
+          };
+        }
+        const t = d.track.data;
         return {
           submissionId: d.submissionId,
           track: {
-            spotifyTrackId: t.id,
-            title: t.name,
-            artist: t.artists.map((a) => a.name).join(", "),
-            artworkUrl: t.album.images[0]?.url ?? null,
-            isrc: t.external_ids?.isrc ?? null,
-            albumName: t.album.name || null,
-            durationMs: t.duration_ms || null,
-            popularity: t.popularity || null,
+            source: "soundcloud" as const,
+            soundcloudTrackUrl: t.url,
+            title: t.title,
+            artist: t.artist,
+            artworkUrl: t.artworkUrl,
           },
           comment: d.comment,
         };
@@ -603,9 +707,9 @@ function SubmissionPhase({
                 </View>
 
                 <View style={styles.pickTrackRow}>
-                  {draft.track.album.images[0]?.url ? (
+                  {pickedArtwork(draft.track) ? (
                     <Image
-                      source={{ uri: draft.track.album.images[0].url }}
+                      source={{ uri: pickedArtwork(draft.track) as string }}
                       style={styles.pickArt}
                     />
                   ) : (
@@ -613,10 +717,10 @@ function SubmissionPhase({
                   )}
                   <View style={styles.pickMeta}>
                     <Text style={styles.pickTitle} numberOfLines={1}>
-                      {draft.track.name}
+                      {pickedTitle(draft.track)}
                     </Text>
                     <Text style={styles.pickArtist} numberOfLines={1}>
-                      {draft.track.artists.map((a) => a.name).join(", ")}
+                      {pickedArtist(draft.track)}
                     </Text>
                   </View>
                 </View>
@@ -659,7 +763,7 @@ function SubmissionPhase({
                   <Text style={styles.searchGlyph}>⌕</Text>
                   <TextInput
                     style={styles.searchInput}
-                    placeholder="search spotify or paste a link"
+                    placeholder="search spotify or paste a spotify / soundcloud link"
                     placeholderTextColor={THEME.muted}
                     value={draft.searchInput}
                     onChangeText={(value) => updateSearchInput(index, value)}
@@ -679,14 +783,14 @@ function SubmissionPhase({
 
               {draft.searchResults.map((track) => (
                 <TouchableOpacity
-                  key={`${index}-${track.id}`}
+                  key={`${index}-${pickedId(track)}`}
                   style={styles.searchResultRow}
                   onPress={() => selectTrack(index, track)}
                 >
-                  {track.album.images[0]?.url ? (
+                  {pickedArtwork(track) ? (
                     <ChromeBorder radius={8} thickness={1} clip style={styles.searchResultArt}>
                       <Image
-                        source={{ uri: track.album.images[0].url }}
+                        source={{ uri: pickedArtwork(track) as string }}
                         style={{ width: "100%", height: "100%" }}
                       />
                     </ChromeBorder>
@@ -700,10 +804,10 @@ function SubmissionPhase({
                   )}
                   <View style={styles.searchResultMeta}>
                     <Text style={styles.searchResultTitle} numberOfLines={1}>
-                      {track.name}
+                      {pickedTitle(track)}
                     </Text>
                     <Text style={styles.searchResultArtist} numberOfLines={1}>
-                      {track.artists.map((a) => a.name).join(", ")}
+                      {pickedArtist(track)}
                     </Text>
                   </View>
                   <ChromeBorder
@@ -927,9 +1031,23 @@ function VotingScreenContent({
 
   const onPlay = () => {
     if (orderedPlaylist.length === 0) return;
-    playback.setPlaylist(orderedPlaylist);
-    setTimeout(() => playback.playTrack(0), 0);
+    playback.playPlaylist(orderedPlaylist, 0);
   };
+
+  // Tap a vote row to start playing that track. Submissions without a Spotify
+  // ID aren't in orderedPlaylist (filtered above) and become non-interactive.
+  const onPlaySubmission = (subId: string) => {
+    const idx = orderedPlaylist.findIndex((t) => t.id === subId);
+    if (idx === -1) return;
+    playback.playPlaylist(orderedPlaylist, idx);
+  };
+
+  // Which submission is currently playing (regardless of where playback was
+  // started from) — used to flag the active row.
+  const currentPlayingSubId =
+    playback.currentIndex !== null
+      ? playback.playlist[playback.currentIndex]?.id ?? null
+      : null;
 
   // TODO(spotify): wire to real "save playlist to Spotify" once the backend
   // hook exists. Stubbed so the button reads as functional today.
@@ -1125,36 +1243,58 @@ function VotingScreenContent({
             submitting || !canEdit || pts === 0 || isOwn;
           const isCommentOpen = expandedCommentId === sub.id;
           const showVoteUI = canEdit && !isOwn;
+          const isCurrentTrack = currentPlayingSubId === sub.id;
+          const isPlayable = !!sub.spotify_track_id || !!sub.soundcloud_track_url;
 
           return (
             <View key={sub.id}>
               <View style={styles.voteRow}>
-                <Text style={styles.voteRowNum}>{trackNum}</Text>
-                {sub.track_artwork_url ? (
-                  <ChromeBorder
-                    radius={8}
-                    thickness={1}
-                    clip
-                    style={styles.voteRowArt}
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => onPlaySubmission(sub.id)}
+                  disabled={!isPlayable}
+                  style={styles.voteRowTapArea}
+                >
+                  <Text
+                    style={[
+                      styles.voteRowNum,
+                      isCurrentTrack && styles.voteRowNumActive,
+                    ]}
                   >
-                    <Image
-                      source={{ uri: sub.track_artwork_url }}
-                      style={{ width: "100%", height: "100%" }}
+                    {isCurrentTrack ? "▶" : trackNum}
+                  </Text>
+                  {sub.track_artwork_url ? (
+                    <ChromeBorder
+                      radius={8}
+                      thickness={1}
+                      clip
+                      style={styles.voteRowArt}
+                    >
+                      <Image
+                        source={{ uri: sub.track_artwork_url }}
+                        style={{ width: "100%", height: "100%" }}
+                      />
+                    </ChromeBorder>
+                  ) : (
+                    <View
+                      style={[styles.voteRowArt, styles.voteRowArtPlaceholder]}
                     />
-                  </ChromeBorder>
-                ) : (
-                  <View
-                    style={[styles.voteRowArt, styles.voteRowArtPlaceholder]}
-                  />
-                )}
-                <View style={styles.voteRowMeta}>
-                  <Text style={styles.voteRowTitle} numberOfLines={1}>
-                    {sub.track_title}
-                  </Text>
-                  <Text style={styles.voteRowArtist} numberOfLines={1}>
-                    {sub.track_artist}
-                  </Text>
-                </View>
+                  )}
+                  <View style={styles.voteRowMeta}>
+                    <Text style={styles.voteRowTitle} numberOfLines={1}>
+                      {sub.track_title}
+                    </Text>
+                    <Text style={styles.voteRowArtist} numberOfLines={1}>
+                      {sub.track_artist}
+                    </Text>
+                  </View>
+                  {/* Own-track label sits inside the tap area — it's a passive
+                      label, not a control, so including it keeps the whole row
+                      tappable when there's nothing interactive on the right. */}
+                  {isOwn ? (
+                    <Text style={styles.voteOwnLabel}>YOUR{"\n"}TRACK</Text>
+                  ) : null}
+                </TouchableOpacity>
 
                 {showVoteUI ? (
                   <View style={styles.voteStack}>
@@ -1194,9 +1334,7 @@ function VotingScreenContent({
                       />
                     </TouchableOpacity>
                   </View>
-                ) : isOwn ? (
-                  <Text style={styles.voteOwnLabel}>YOUR{"\n"}TRACK</Text>
-                ) : showSubmittedView ? (
+                ) : !isOwn && showSubmittedView ? (
                   <View style={styles.voteStack}>
                     <Text style={styles.voteCount}>{pts}</Text>
                     <Text style={styles.voteLocked}>pts</Text>
@@ -1755,15 +1893,12 @@ function ResultsPhase({
 
   const onPlay = () => {
     if (orderedPlaylist.length === 0) return;
-    playback.setPlaylist(orderedPlaylist);
-    // setPlaylist is React state; play on the next tick.
-    setTimeout(() => playback.playTrack(0), 0);
+    playback.playPlaylist(orderedPlaylist, 0);
   };
 
   const onShuffle = () => {
     if (orderedPlaylist.length === 0) return;
-    playback.setPlaylist(shuffled(orderedPlaylist));
-    setTimeout(() => playback.playTrack(0), 0);
+    playback.playPlaylist(shuffled(orderedPlaylist), 0);
   };
 
   if (loading) {
@@ -3564,6 +3699,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     gap: 10,
   },
+  voteRowTapArea: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   voteRowNum: {
     fontFamily: THEME.fonts.monoBold,
     fontSize: 11,
@@ -3571,6 +3712,11 @@ const styles = StyleSheet.create({
     color: THEME.muted,
     width: 22,
     textAlign: "left",
+  },
+  voteRowNumActive: {
+    color: THEME.ink,
+    fontSize: 12,
+    letterSpacing: 0,
   },
   voteRowArt: {
     width: 44,
