@@ -65,6 +65,22 @@ export type MixTheme = {
     sansMedium: string;
     sansSemi: string;
     sansBold: string;
+    monoBold: string;
+    monoExtraBold: string;
+  };
+
+  // Page-wide wallpaper image (Supabase Storage URL). Themes without a
+  // wallpaper render the flat `bg` color instead.
+  wallpaper?: string;
+
+  // Chrome palette for borders / glyph fills. Approximated in RN as solid
+  // colors + shadow until a proper MaskedView + LinearGradient pipeline
+  // lands. See `ui/ChromeText.tsx`.
+  chrome: {
+    base: string;     // mid-tone silver for solid fills
+    highlight: string; // bright reflection
+    shadow: string;   // dark recess
+    border: string;   // single-color border approximation
   };
 
   text: UiPreviewTextStyles;

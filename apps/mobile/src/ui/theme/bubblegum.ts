@@ -1,5 +1,12 @@
 import type { MixTheme } from "./types";
 
+// Bubblegum · Halftone — SOPHIE × Barbie × Charli XCX energy.
+// Hot-pink halftone wallpaper, chunky italic Fraunces display, chrome glyphs
+// (★ ✦ ♥ +) and borders, matte plum-black bottom nav. The page IS the color
+// story — not a neutral canvas.
+//
+// Design handoff: see Claude Design's Bubblegum spec (Nov 2026).
+
 const fonts = {
   serifRegular: "Fraunces_400Regular",
   serifItalic: "Fraunces_400Regular_Italic",
@@ -15,27 +22,45 @@ const fonts = {
 };
 
 const colors = {
-  bg: "#F6F1E8",
-  surface: "#FFFFFF",
-  ink: "#0B0B0B",
-  muted: "#6B6257",
-  faint: "#A69D92",
-  rule: "rgba(11,11,11,0.08)",
-  accent: "#B02A2A",
+  // surfaces
+  bgPage: "#FF2E9A",       // hot pink wallpaper
+  bgPageDot: "#FFC6E3",    // halftone dot color (lives in the wallpaper image)
+  bgPaper: "#FFD9EC",      // primary card surface (baby pink)
+  bgPaperMono: "#FFE9F4",  // lighter card surface
+
+  // ink
+  ink: "#1A0814",          // near-black plum
+  inkMuted: "#A8186E",     // deep magenta secondary
+  inkFaint: "#FF85C2",     // faded tertiary
+  rule: "rgba(26,8,20,0.14)",
+
+  // accents
+  accent: "#C4FF3D",       // acid lime — "the opposite pop". On Bubblegum
+                            // it's replaced by chrome for glyphs/fills.
+  accentSoft: "#FFF14A",   // yellow secondary
+
+  // nav
+  navBg: "#1A0814",
+  navInk: "#FFD9EC",
+  navAccent: "#FFFFFF",
 };
 
-export const DISCO_THEME: MixTheme = {
-  name: "disco",
-  defaultTone: "#141414",
+export const BUBBLEGUM_THEME: MixTheme = {
+  name: "bubblegum",
+  defaultTone: "#1A0814",
 
-  // ── Palette ─────────────────────────────────────────────────────────
-  bg: colors.bg, // warm cream paper
-  surface: colors.surface,
+  // Wallpaper image — full-bleed pink halftone. Upload `bubblegum-bg.png` to
+  // the same Supabase bucket as the disco assets.
+  wallpaper:
+    "https://dmkxaqhmcbrzqnpnpicx.supabase.co/storage/v1/object/public/mix%20theme%20assets/Themes/DiscoBalloon/bubblegum-bg.png",
+
+  bg: colors.bgPage,
+  surface: colors.bgPaper,
   ink: colors.ink,
-  muted: colors.muted,
-  faint: colors.faint,
+  muted: colors.inkMuted,
+  faint: colors.inkFaint,
   rule: colors.rule,
-  accent: colors.accent, // editorial red — "live now" moment
+  accent: colors.accent,
 
   chrome: {
     base: "#cfcfcf",
@@ -44,75 +69,73 @@ export const DISCO_THEME: MixTheme = {
     border: "#bdbdbd",
   },
 
-  // ── Type ────────────────────────────────────────────────────────────
-  // Font-family strings pointing at the Google Fonts variants loaded in the
-  // root layout. We pick the weight/italic by choosing the right key.
   fonts,
 
-  // Semantic text slots. Components should prefer these over composing
-  // `fonts` + colors directly so another theme can fully restyle each role.
   text: {
     homeLeagueTag: {
-      fontFamily: fonts.serifItalic,
-      fontSize: 11,
+      fontFamily: fonts.monoBold,
+      fontSize: 10,
       letterSpacing: 1.8,
       textTransform: "uppercase",
-      color: colors.muted,
+      color: colors.ink,
     },
     homePageTitle: {
-      fontFamily: fonts.sansBold,
-      fontSize: 34,
-      lineHeight: 36,
-      letterSpacing: -1.2,
+      fontFamily: fonts.serifBold,
+      fontStyle: "italic",
+      fontSize: 48,
+      lineHeight: 50,
+      letterSpacing: -1.8,
       color: colors.ink,
     },
     avatarInitial: {
       fontFamily: fonts.sansBold,
       fontSize: 11,
-      color: "#fff",
+      color: colors.ink,
     },
     homeLiveLabel: {
-      fontFamily: fonts.sansBold,
-      fontSize: 11,
-      letterSpacing: 1.4,
+      fontFamily: fonts.monoBold,
+      fontSize: 10,
+      letterSpacing: 1.6,
       textTransform: "uppercase",
-      color: colors.accent,
+      color: colors.ink,
     },
     homeHeroPrompt: {
-      fontFamily: fonts.serifItalic,
-      fontSize: 32,
-      lineHeight: 34,
-      letterSpacing: -0.6,
+      fontFamily: fonts.serifBold,
+      fontStyle: "italic",
+      fontSize: 52,
+      lineHeight: 50,
+      letterSpacing: -2.2,
       color: colors.ink,
     },
     homeHeroDescriptor: {
       fontFamily: fonts.sansMedium,
       fontSize: 12,
-      color: colors.muted,
+      color: colors.ink,
     },
     liveBadgeText: {
-      fontFamily: fonts.sansBold,
+      fontFamily: fonts.monoBold,
       fontSize: 10,
-      letterSpacing: 1,
+      letterSpacing: 1.6,
       textTransform: "uppercase",
       color: colors.ink,
     },
     homeHeroPhase: {
-      fontFamily: fonts.sansSemi,
-      fontSize: 11,
-      letterSpacing: 1.2,
+      fontFamily: fonts.monoBold,
+      fontSize: 10,
+      letterSpacing: 1.6,
       textTransform: "uppercase",
-      color: "rgba(255,255,255,0.9)",
+      color: colors.ink,
     },
     homeHeroCta: {
-      fontFamily: fonts.serifMedium,
+      fontFamily: fonts.serifMediumItalic,
       fontSize: 20,
       lineHeight: 22,
       letterSpacing: -0.3,
-      color: "#fff",
+      color: colors.ink,
     },
     sectionTitle: {
-      fontFamily: fonts.sansBold,
+      fontFamily: fonts.serifBold,
+      fontStyle: "italic",
       fontSize: 22,
       letterSpacing: -0.6,
       color: colors.ink,
@@ -120,26 +143,28 @@ export const DISCO_THEME: MixTheme = {
     sectionMeta: {
       fontFamily: fonts.sansMedium,
       fontSize: 12,
-      color: colors.muted,
+      color: colors.ink,
     },
     playlistTilePrompt: {
-      fontFamily: fonts.serifMedium,
-      fontSize: 14,
+      fontFamily: fonts.serifMediumItalic,
+      fontSize: 15,
       lineHeight: 17,
-      letterSpacing: -0.1,
+      letterSpacing: -0.2,
       color: colors.ink,
     },
     playlistTileMeta: {
-      fontFamily: fonts.sansMedium,
-      fontSize: 11,
-      color: colors.muted,
+      fontFamily: fonts.monoBold,
+      fontSize: 9.5,
+      letterSpacing: 1.4,
+      textTransform: "uppercase",
+      color: colors.ink,
     },
     seasonsLabel: {
-      fontFamily: fonts.sansBold,
-      fontSize: 11,
-      letterSpacing: 1.6,
+      fontFamily: fonts.monoBold,
+      fontSize: 10,
+      letterSpacing: 1.8,
       textTransform: "uppercase",
-      color: colors.muted,
+      color: colors.ink,
     },
     seasonIconLetter: {
       fontFamily: fonts.serifMediumItalic,
@@ -154,22 +179,22 @@ export const DISCO_THEME: MixTheme = {
     seasonStatus: {
       fontFamily: fonts.sansMedium,
       fontSize: 11,
-      color: colors.muted,
+      color: colors.ink,
     },
     seasonArrow: {
       fontFamily: fonts.serifItalic,
       fontSize: 18,
-      color: colors.faint,
+      color: colors.inkFaint,
     },
     nowPlayingTitle: {
       fontFamily: fonts.sansSemi,
       fontSize: 14,
-      color: colors.ink,
+      color: colors.navInk,
     },
     nowPlayingArtist: {
       fontFamily: fonts.sansMedium,
       fontSize: 12,
-      color: colors.muted,
+      color: colors.navInk,
     },
     tabLabel: {
       fontFamily: fonts.sansSemi,
@@ -193,10 +218,11 @@ export const DISCO_THEME: MixTheme = {
       color: colors.ink,
     },
     detailTitle: {
-      fontFamily: fonts.serifMediumItalic,
-      fontSize: 28,
-      lineHeight: 32,
-      letterSpacing: -0.4,
+      fontFamily: fonts.serifBold,
+      fontStyle: "italic",
+      fontSize: 34,
+      lineHeight: 36,
+      letterSpacing: -1,
       color: "#fff",
       textAlign: "center",
       textShadowColor: "rgba(0,0,0,0.35)",
@@ -208,72 +234,66 @@ export const DISCO_THEME: MixTheme = {
       fontSize: 15,
       color: "rgba(255,255,255,0.9)",
       textAlign: "center",
-      textShadowColor: "rgba(0,0,0,0.35)",
-      textShadowOffset: { width: 0, height: 1 },
-      textShadowRadius: 6,
     },
     detailMeta: {
-      fontFamily: fonts.sansMedium,
-      fontSize: 12,
-      color: "rgba(255,255,255,0.78)",
+      fontFamily: fonts.monoBold,
+      fontSize: 10,
+      letterSpacing: 1.6,
+      textTransform: "uppercase",
+      color: "rgba(255,255,255,0.85)",
       textAlign: "center",
-      textShadowColor: "rgba(0,0,0,0.35)",
-      textShadowOffset: { width: 0, height: 1 },
-      textShadowRadius: 6,
     },
     detailActionButtonLabel: {
       fontFamily: fonts.sansSemi,
       fontSize: 15,
-      color: "#fff",
+      color: colors.ink,
     },
     detailShuffleGlyph: {
       fontFamily: fonts.sansBold,
       fontSize: 18,
-      color: "#fff",
+      color: colors.ink,
     },
     detailDescription: {
       fontFamily: fonts.sansMedium,
       fontSize: 13,
       lineHeight: 19,
-      color: "#000",
+      color: colors.ink,
     },
     trackTitle: {
-      fontFamily: fonts.sansSemi,
-      fontSize: 15,
+      fontFamily: fonts.serifBold,
+      fontStyle: "italic",
+      fontSize: 17,
+      letterSpacing: -0.3,
       color: colors.ink,
     },
     trackArtist: {
       fontFamily: fonts.sansMedium,
       fontSize: 12,
-      color: colors.muted,
+      color: colors.inkMuted,
     },
     trackMore: {
       fontFamily: fonts.sansBold,
       fontSize: 16,
-      color: colors.muted,
+      color: colors.inkMuted,
     },
     helperText: {
       fontFamily: fonts.serifItalic,
-      fontSize: 8,
-      color: "#fff",
+      fontSize: 11,
+      color: colors.ink,
     },
   },
 
-  // ── Round Artwork ───────────────────────────────────────────────────
-  // Images are served from Supabase Storage. Append new entries to the end
-  // so existing round → key assignments don't shift (roundCoverKey cycles
-  // by index). Keys listed in COVER_KEYS must stay in sync with the rotating
-  // round covers here; extra keys are fixed artwork for specific surfaces.
-  //
-  // Base URL: https://dmkxaqhmcbrzqnpnpicx.supabase.co/storage/v1/object/public/
-  //           mix%20theme%20assets/Themes/DiscoBalloon/
+  // Reuse the disco round artwork until Bubblegum-specific round covers
+  // exist in Supabase. The wallpaper supplies the per-theme visual identity;
+  // round covers are still per-round. Keys listed in COVER_KEYS rotate by
+  // round number; extra keys are fixed artwork for specific surfaces.
   rounds: {
     "disco-balloon-hero": {
       image:
         "https://dmkxaqhmcbrzqnpnpicx.supabase.co/storage/v1/object/public/mix%20theme%20assets/Themes/DiscoBalloon/Disco-Balloon-Hero.jpg",
       tone: "#e83a9b",
       // Local mp4 — same asset that powered the original ui-preview Motion
-      // Artwork POC. Plays muted+looping on top of the still image.
+      // Artwork POC. Plays muted+looping over the still image.
       video: require("../../../assets/videos/rounds/Disco-Balloon.mp4"),
     },
     "disco-encrusted": {

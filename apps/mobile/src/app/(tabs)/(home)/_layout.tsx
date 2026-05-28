@@ -20,7 +20,32 @@ export default function HomeStackLayout() {
       <Stack.Screen name="create-season" options={{ title: 'New Season' }} />
       <Stack.Screen name="league/[id]"   options={{ title: 'League' }} />
       <Stack.Screen name="season/[id]"   options={{ title: 'Season' }} />
-      <Stack.Screen name="round/[id]"    options={{ title: 'Round' }} />
+      <Stack.Screen
+        name="round/[id]"
+        options={{
+          // Transparent header keeps the native iOS back chevron (liquid
+          // glass on iOS 26) without painting a bar over the wallpaper.
+          headerTransparent: true,
+          headerBlurEffect: undefined,
+          headerStyle: { backgroundColor: 'transparent' },
+          headerTitle: '',
+          headerShadowVisible: false,
+          headerTintColor: '#1A0814',
+        }}
+      />
+      <Stack.Screen
+        name="playlist/[id]"
+        options={{
+          // Same transparent-header treatment as the round screen so the
+          // hero image bleeds full-bleed behind the iOS back chevron.
+          headerTransparent: true,
+          headerBlurEffect: undefined,
+          headerStyle: { backgroundColor: 'transparent' },
+          headerTitle: '',
+          headerShadowVisible: false,
+          headerTintColor: '#1A0814',
+        }}
+      />
     </Stack>
   );
 }

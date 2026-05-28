@@ -8,16 +8,18 @@
 // Commissioner affordances (+ Season, + Round) are intentionally ugly text
 // buttons in the PageHeader trailing slot. Visual treatment lands in v2.
 
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { armZoomTransition } from 'native-zoom';
@@ -37,6 +39,9 @@ import { useSeasonStandings } from '@/queries/useSeasonStandings';
 import { useSubmissionCountsForRounds } from '@/queries/useSubmissionCountsForRounds';
 
 import { PageHeader } from '@/ui/PageHeader';
+import { Wallpaper } from '@/ui/Wallpaper';
+import { HaloText } from '@/ui/HaloText';
+import { FittedChromeTitle } from '@/ui/FittedChromeTitle';
 import { SectionHeader } from '@/ui/sections/SectionHeader';
 import { SeasonsList, type SeasonsListSeason } from '@/ui/sections/SeasonsList';
 import { HeroRoundCard, type HeroStatus } from '@/ui/cards/HeroRoundCard';
@@ -46,6 +51,8 @@ import { THEME } from '@/ui/theme';
 
 import { derivePhase, formatPhaseCountdown } from '@/lib/utils/phase';
 import { roundCoverKey } from '@/lib/utils/coverKey';
+
+const HOME_HERO_IMAGE_KEY = 'disco-balloon-hero';
 
 // Map our phase enum onto HeroRoundCard's status enum. "voting" stays
 // "voting" (which renders as "Live round · vote open"), submissions/results
@@ -72,12 +79,19 @@ function useZoomCooldown() {
     }, []),
   );
 
-  return useCallback((armId: string, navigate: () => void) => {
-    if (Date.now() < cooldownUntil.current) return;
-    cooldownUntil.current = Date.now() + 600;
-    armZoomTransition(armId);
-    navigate();
-  }, []);
+  return useCallback(
+    (armId: string | null, navigate: () => void) => {
+      if (Date.now() < cooldownUntil.current) return;
+      cooldownUntil.current = Date.now() + 600;
+      // Only arm the iOS .zoom transition when the destination renders a
+      // hero we're "opening into". For phases without a hero (submissions,
+      // voting) the default push animation is correct — a card zoom into
+      // a flat page reads as a UI bug.
+      if (armId) armZoomTransition(armId);
+      navigate();
+    },
+    [],
+  );
 }
 
 export function HomeTabScreen() {
@@ -125,8 +139,23 @@ function HomeTabContent({
   userId: string | null;
   router: ReturnType<typeof useRouter>;
   bottomInset: number;
-  armAndPush: (armId: string, navigate: () => void) => void;
+  armAndPush: (armId: string | null, navigate: () => void) => void;
 }) {
+  const queryClient = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    // Mirrors the invalidations submitVotes / forceEndRound trigger — nukes
+    // the active-round selection + season rounds (rail) so the whole home
+    // surface re-fetches in one pull.
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['league'] }),
+      queryClient.invalidateQueries({ queryKey: ['season'] }),
+      queryClient.invalidateQueries({ queryKey: ['round'] }),
+    ]);
+    setRefreshing(false);
+  }, [queryClient]);
+
   const { data: league } = useLeague(leagueId);
   const { data: members = [] } = useLeagueMembers(leagueId);
   const { data: activeSeason } = useActiveSeasonForLeague(leagueId);
@@ -266,7 +295,7 @@ function HomeTabContent({
       phaseLabel,
       status,
       ctaLabel,
-      imageKey: roundCoverKey(round),
+      imageKey: HOME_HERO_IMAGE_KEY,
     };
   }, [round, submissions]);
 
@@ -274,7 +303,7 @@ function HomeTabContent({
   const isCommissioner = !!league && !!userId && league.admin_user_id === userId;
 
   const goToRound = useCallback(
-    (roundId: string, zoomKey: string) => {
+    (roundId: string, zoomKey: string | null) => {
       armAndPush(zoomKey, () => {
         router.push({
           pathname: '/(tabs)/(home)/round/[id]',
@@ -320,12 +349,19 @@ function HomeTabContent({
   ) : undefined;
 
   return (
-    <View style={styles.root}>
+    <Wallpaper>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingBottom: bottomInset }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={THEME.ink}
+            />
+          }
         >
           <PageHeader
             leagueTag={league?.name}
@@ -335,16 +371,50 @@ function HomeTabContent({
           />
 
           {hero ? (
-            <HeroRoundCard
-              prompt={hero.prompt}
-              descriptor={hero.descriptor}
-              phaseLabel={hero.phaseLabel}
-              ctaLabel={hero.ctaLabel}
-              status={hero.status}
-              imageKey={hero.imageKey}
-              zoomSourceId={`round-${hero.id}`}
-              onPress={() => goToRound(hero.id, `round-${hero.id}`)}
-            />
+            <>
+              <HeroRoundCard
+                prompt={hero.prompt}
+                descriptor={hero.descriptor}
+                phaseLabel={hero.phaseLabel}
+                ctaLabel={hero.ctaLabel}
+                status={hero.status}
+                imageKey={hero.imageKey}
+                zoomSourceId={`round-${hero.id}`}
+                onPress={() =>
+                  goToRound(
+                    hero.id,
+                    // Zoom into the destination whenever it shows a hero
+                    // image at the top — currently voting (custom VoteHero)
+                    // and results (HeroBanner). Submissions stays as a
+                    // default push since it has no hero.
+                    hero.status === 'voting' || hero.status === 'results'
+                      ? `round-${hero.id}`
+                      : null,
+                  )
+                }
+              />
+
+              {/* Chrome tether — a short vertical line that visually ties the
+                  active card to the round title below it. Reads as the card
+                  "dripping" into the headline. */}
+              <View style={styles.tether} />
+
+              {/* Round title block — italic Fraunces headline + chrome ★, set
+                  against a dual-layer radial halo. Sits directly below the
+                  active card, matching the Bubblegum home spec. */}
+              <View style={styles.roundTitleBlock}>
+                <Text style={styles.roundTitleTagline}>this sounds like</Text>
+                <HaloText style={styles.roundTitleHaloWrap}>
+                  <FittedChromeTitle
+                    text={hero.prompt.toUpperCase()}
+                    textStyle={styles.roundTitleText}
+                    minimumFontScale={0.58}
+                    maxStarSize={32}
+                  />
+                </HaloText>
+              </View>
+
+            </>
           ) : (
             // TODO: redesign in v2 — minimal placeholder card for the
             // between-rounds case (active season but no live round, or
@@ -361,11 +431,18 @@ function HomeTabContent({
 
           {railRounds.length > 0 ? (
             <>
-              <SectionHeader
-                title="Your playlists"
-                count={railRounds.length}
-                trailingLabel="all seasons"
-              />
+              {/* Section row with an inline rule: title left, hairline gray
+                  line in the middle, trailing label + chevron on the right.
+                  This row IS the separator — no extra divider above it. */}
+              <View style={styles.sectionRuleRow}>
+                <Text style={styles.sectionRuleTitle}>
+                  YOUR ROUNDS
+                </Text>
+                <View style={styles.sectionRuleLine} />
+                <Text style={styles.sectionRuleTrailing}>
+                  ALL SEASONS ›
+                </Text>
+              </View>
               <PlaylistRail
                 items={railRounds.map((r) => {
                   const tracks = railSubmissionCounts[r.id] ?? 0;
@@ -384,12 +461,16 @@ function HomeTabContent({
             </>
           ) : null}
 
-          {seasonsForList.length > 0 ? (
+          {/* Seasons list intentionally hidden — revisit when the seasons
+              surface gets its own bubblegum treatment. The data setup
+              (seasonsForList useMemo) stays so re-enabling is a one-line
+              re-render. */}
+          {/* {seasonsForList.length > 0 ? (
             <SeasonsList seasons={seasonsForList} onPress={goToSeason} />
-          ) : null}
+          ) : null} */}
         </ScrollView>
       </SafeAreaView>
-    </View>
+    </Wallpaper>
   );
 }
 
@@ -398,7 +479,7 @@ function HomeTabContent({
 function CreateLeagueEmptyState() {
   const router = useRouter();
   return (
-    <View style={styles.root}>
+    <Wallpaper>
       <SafeAreaView style={{ flex: 1 }} edges={['top']}>
         <PageHeader title="mix" />
         <View style={styles.emptyBody}>
@@ -415,11 +496,83 @@ function CreateLeagueEmptyState() {
           </Pressable>
         </View>
       </SafeAreaView>
-    </View>
+    </Wallpaper>
   );
 }
 
 const styles = StyleSheet.create({
+  // Thin gray vertical line tethering the active hero card to the round
+  // title below. Same hairline weight as the section rule for visual
+  // continuity.
+  tether: {
+    alignSelf: 'center',
+    width: 1,
+    height: 22,
+    backgroundColor: 'rgba(26,8,20,0.28)',
+    marginTop: 4,
+  },
+
+  // Inline section rule: "YOUR ROUNDS ──── ALL SEASONS ›". The hairline
+  // between the labels IS the visual separator from the round title area
+  // above — no standalone divider needed.
+  sectionRuleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+    marginTop: 8,
+    marginBottom: 10,
+    gap: 10,
+  },
+  sectionRuleTitle: {
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 10,
+    letterSpacing: 1.8,
+    color: THEME.ink,
+  },
+  sectionRuleLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(26,8,20,0.28)',
+  },
+  sectionRuleTrailing: {
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 10,
+    letterSpacing: 1.8,
+    color: THEME.ink,
+  },
+
+  // Round title block below the active hero card.
+  roundTitleBlock: {
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    gap: 4,
+    paddingHorizontal: 22,
+  },
+  roundTitleTagline: {
+    fontFamily: THEME.fonts.serifItalic,
+    fontSize: 14,
+    color: THEME.ink,
+    // Raise above HaloText's spill so the blur doesn't capture this label.
+    zIndex: 1,
+  },
+  roundTitleHaloWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+  },
+  roundTitleText: {
+    fontFamily: THEME.fonts.serifBold,
+    fontStyle: 'italic',
+    fontSize: 52,
+    lineHeight: 56,
+    letterSpacing: -2.2,
+    color: THEME.ink,
+    textAlign: 'center',
+  },
   root: { flex: 1, backgroundColor: THEME.bg },
   loading: {
     flex: 1,

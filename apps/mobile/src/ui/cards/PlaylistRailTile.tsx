@@ -7,6 +7,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { ZoomSource } from "native-zoom";
 import { THEME } from "@/ui/theme";
 import { imageForKey } from "@/ui/theme/images";
+import { ChromeBorder } from "@/ui/ChromeBorder";
 
 export type PlaylistRailTileProps = {
   prompt: string;
@@ -40,13 +41,15 @@ export function PlaylistRailTile({
 
   return (
     <Pressable style={styles.item} onPress={onPress} disabled={!onPress}>
-      {zoomSourceId ? (
-        <ZoomSource zoomSourceId={zoomSourceId} style={styles.art}>
-          {artNode}
-        </ZoomSource>
-      ) : (
-        <View style={styles.art}>{artNode}</View>
-      )}
+      <ChromeBorder radius={14} thickness={1.5} clip style={styles.artFrame}>
+        {zoomSourceId ? (
+          <ZoomSource zoomSourceId={zoomSourceId} style={styles.fill}>
+            {artNode}
+          </ZoomSource>
+        ) : (
+          <View style={styles.fill}>{artNode}</View>
+        )}
+      </ChromeBorder>
       <Text style={styles.prompt} numberOfLines={2}>
         {prompt}
       </Text>
@@ -63,10 +66,8 @@ const styles = StyleSheet.create({
   item: {
     width: "100%",
   },
-  art: {
+  artFrame: {
     aspectRatio: 1,
-    borderRadius: 12,
-    overflow: "hidden",
     shadowColor: THEME.ink,
     shadowOpacity: 0.08,
     shadowRadius: 18,

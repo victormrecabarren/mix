@@ -18,9 +18,12 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import MaskedView from "@react-native-masked-view/masked-view";
+import { LinearGradient } from "expo-linear-gradient";
 import { THEME } from "@/ui/theme";
 import { imageForKey, toneForKey } from "@/ui/theme/images";
 import { videoForKey } from "@/ui/theme/videos";
+import { ChromeButton } from "@/ui/ChromeButton";
 
 // Tuning constants matching the preview's draft motion artwork. When videos
 // are re-authored to a centered focal zone these can be removed.
@@ -63,10 +66,22 @@ export type HeroBannerProps = {
   title: string;
   subtitle?: string;
   meta?: string;
-  ctas?: { play?: () => void; shuffle?: () => void };
+  // play = primary; shuffle / addToSpotify = secondary. Pass either one of
+  // shuffle or addToSpotify (not both). The secondary slot picks the label
+  // and glyph based on which handler was provided.
+  ctas?: {
+    play?: () => void;
+    shuffle?: () => void;
+    addToSpotify?: () => void;
+  };
   trailing?: ReactNode;
   status?: HeroBannerStatus;
   onBack?: () => void;
+  // When true, the hero image/video fades its alpha to transparent over the
+  // bottom 25% of the hero rectangle, so the content "melts" into whatever
+  // page background sits below (the iridescent wash, typically). Off by
+  // default to preserve the existing results-phase look.
+  fadeBottom?: boolean;
 };
 
 export function HeroBanner({
@@ -78,6 +93,7 @@ export function HeroBanner({
   ctas,
   trailing,
   onBack,
+  fadeBottom = false,
 }: HeroBannerProps) {
   const { height: screenHeight } = useWindowDimensions();
   const image = imageForKey(imageKey);
@@ -86,41 +102,64 @@ export function HeroBanner({
 
   const heroHeight = screenHeight * 0.66;
 
+  const heroContent = (
+    <View
+      style={[styles.hero, { height: heroHeight, backgroundColor: fadeBottom ? "transparent" : tone }]}
+    >
+      {image != null ? (
+        <>
+          <View style={StyleSheet.absoluteFillObject}>
+            <Image
+              source={image}
+              style={styles.fill}
+              blurRadius={40}
+              contentFit="cover"
+              contentPosition="top"
+              transition={0}
+            />
+          </View>
+          <View style={StyleSheet.absoluteFillObject}>
+            <Image
+              source={image}
+              style={styles.fill}
+              contentFit="cover"
+              contentPosition="top"
+              transition={0}
+            />
+          </View>
+        </>
+      ) : null}
+      {video != null && (
+        <View style={StyleSheet.absoluteFillObject}>
+          <HeroVideoLayer source={video} />
+        </View>
+      )}
+    </View>
+  );
+
   return (
     <View>
       {/* ── Hero image fills the top ~66% of the screen ── */}
-      <View
-        style={[styles.hero, { height: heroHeight, backgroundColor: tone }]}
-      >
-        {image != null ? (
-          <>
-            <View style={StyleSheet.absoluteFillObject}>
-              <Image
-                source={image}
-                style={styles.fill}
-                blurRadius={40}
-                contentFit="cover"
-                contentPosition="top"
-                transition={0}
-              />
-            </View>
-            <View style={StyleSheet.absoluteFillObject}>
-              <Image
-                source={image}
-                style={styles.fill}
-                contentFit="cover"
-                contentPosition="top"
-                transition={0}
-              />
-            </View>
-          </>
-        ) : null}
-        {video != null && (
-          <View style={StyleSheet.absoluteFillObject}>
-            <HeroVideoLayer source={video} />
-          </View>
-        )}
-      </View>
+      {fadeBottom ? (
+        // Vertical alpha mask: opaque top, transparent at the bottom 25%.
+        // The hero content shows the page background through the fade.
+        <MaskedView
+          style={{ height: heroHeight }}
+          maskElement={
+            <LinearGradient
+              colors={["#000", "#000", "transparent"]}
+              locations={[0, 0.7, 1]}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          }
+        >
+          {heroContent}
+        </MaskedView>
+      ) : (
+        heroContent
+      )}
 
       {/* ── Top chrome over the hero ── */}
       <SafeAreaView
@@ -156,24 +195,38 @@ export function HeroBanner({
           ) : null}
         </View>
 
-        {(ctas?.play || ctas?.shuffle) && (
+        {(ctas?.play || ctas?.shuffle || ctas?.addToSpotify) && (
           <View style={styles.buttonRow}>
             {ctas.play && (
-              <Pressable
-                style={[styles.actionBtn, styles.actionBtnBg]}
-                onPress={ctas.play}
-              >
-                <View style={styles.playTriangle} />
-                <Text style={styles.actionBtnLabel}>Play</Text>
-              </Pressable>
+              <ChromeButton onPress={ctas.play} style={styles.actionBtnFrame}>
+                <View style={styles.playTriangleDark} />
+                <Text style={styles.actionBtnLabelDark}>Play</Text>
+              </ChromeButton>
             )}
             {ctas.shuffle && (
               <Pressable
-                style={[styles.actionBtn, styles.actionBtnBg]}
+                style={[
+                  styles.actionBtn,
+                  styles.actionBtnFrame,
+                  styles.actionBtnDarkBg,
+                ]}
                 onPress={ctas.shuffle}
               >
                 <Text style={styles.shuffleGlyph}>⇄</Text>
                 <Text style={styles.actionBtnLabel}>Shuffle</Text>
+              </Pressable>
+            )}
+            {ctas.addToSpotify && (
+              <Pressable
+                style={[
+                  styles.actionBtn,
+                  styles.actionBtnFrame,
+                  styles.actionBtnDarkBg,
+                ]}
+                onPress={ctas.addToSpotify}
+              >
+                <Text style={styles.shuffleGlyph}>+</Text>
+                <Text style={styles.actionBtnLabel}>Add to Spotify</Text>
               </Pressable>
             )}
           </View>
@@ -255,13 +308,35 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 26,
   },
-  actionBtnBg: {
-    backgroundColor: "rgba(141, 1, 73, 0.35)",
+  actionBtnFrame: {
+    flex: 1,
+  },
+  // Inner Pressable for the ChromeBorder-wrapped Play button. ChromeBorder
+  // owns the radius + bg; this just pads + center-aligns the glyph/label.
+  actionBtnInner: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+  },
+  actionBtnDarkBg: {
+    backgroundColor: THEME.ink,
   },
   actionBtnLabel: {
-    ...THEME.text.detailActionButtonLabel,
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 14,
+    letterSpacing: 0.2,
+    color: "#FFD9EC",
   },
-  playTriangle: {
+  actionBtnLabelDark: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 14,
+    letterSpacing: 0.2,
+    color: THEME.ink,
+  },
+  playTriangleDark: {
     width: 0,
     height: 0,
     borderTopWidth: 7,
@@ -269,10 +344,12 @@ const styles = StyleSheet.create({
     borderLeftWidth: 10,
     borderTopColor: "transparent",
     borderBottomColor: "transparent",
-    borderLeftColor: "#fff",
+    borderLeftColor: THEME.ink,
     marginLeft: 2,
   },
   shuffleGlyph: {
-    ...THEME.text.detailShuffleGlyph,
+    fontFamily: THEME.fonts.sansBold,
+    fontSize: 18,
+    color: "#FFD9EC",
   },
 });
