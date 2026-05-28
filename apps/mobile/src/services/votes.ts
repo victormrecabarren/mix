@@ -12,6 +12,7 @@ export type VotingSubmission = {
   spotify_track_id: string | null;
   track_isrc: string;
   comment: string | null;
+  playlist_position: number | null;
 };
 
 export type VoteInput = { submissionId: string; points: number };
@@ -30,9 +31,10 @@ export async function getRoundSubmissions(
   const { data, error } = await supabase
     .from("submissions")
     .select(
-      "id, user_id, track_title, track_artist, track_artwork_url, spotify_track_id, track_isrc, comment",
+      "id, user_id, track_title, track_artist, track_artwork_url, spotify_track_id, track_isrc, comment, playlist_position",
     )
-    .eq("round_id", roundId);
+    .eq("round_id", roundId)
+    .order("playlist_position", { ascending: true, nullsFirst: false });
   if (error) throw postgresToMixError(error);
   return data ?? [];
 }
