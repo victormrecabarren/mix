@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlayback } from '@/playback/PlaybackContext';
 import { useSession } from '@/context/SessionContext';
@@ -151,23 +151,8 @@ export function ProfileTabScreen() {
     previous,
   } = usePlayback();
   const { session, supabaseUserId, signOut } = useSession();
-  const { activeLeague, setActiveLeagueId, activeLeagueId } = useLeague();
+  const { setActiveLeagueId, activeLeagueId } = useLeague();
   const { data: leagues = [] } = useMyLeagues(supabaseUserId ?? undefined);
-
-  const handleSwitchLeague = () => {
-    if (leagues.length === 0) { Alert.alert('No leagues found'); return; }
-    Alert.alert(
-      'Switch League',
-      `Active: ${activeLeague?.name ?? activeLeagueId ?? 'none'}`,
-      [
-        ...leagues.map((l) => ({
-          text: l.id === activeLeagueId ? `✓ ${l.name}` : l.name,
-          onPress: () => setActiveLeagueId(l.id),
-        })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ],
-    );
-  };
 
   const hasTrack = currentIndex !== null;
   const hasPrevious = currentIndex !== null && currentIndex > 0;
@@ -198,9 +183,31 @@ export function ProfileTabScreen() {
         <TouchableOpacity style={styles.signOutBtn} onPress={signOut}>
           <Text style={styles.signOutLabel}>Sign Out</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.devBtn} onPress={handleSwitchLeague}>
-          <Text style={styles.devBtnLabel}>[DEV] Switch League</Text>
-        </TouchableOpacity>
+      </View>
+
+      {/* ── League switcher (dev) ── */}
+      <View style={styles.leagueSection}>
+        <Text style={styles.sectionTitle}>[DEV] LEAGUES</Text>
+        {leagues.length === 0 ? (
+          <Text style={styles.leagueEmpty}>Not in any league yet.</Text>
+        ) : (
+          leagues.map((l) => {
+            const active = l.id === activeLeagueId;
+            return (
+              <TouchableOpacity
+                key={l.id}
+                style={[styles.leagueRow, active && styles.leagueRowActive]}
+                onPress={() => setActiveLeagueId(l.id)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.leagueName, active && styles.leagueNameActive]} numberOfLines={1}>
+                  {active ? '● ' : '○ '}{l.name}
+                </Text>
+                <Text style={styles.leagueId} numberOfLines={1}>{l.id}</Text>
+              </TouchableOpacity>
+            );
+          })
+        )}
       </View>
 
       {/* ── Now Playing ── */}
@@ -268,8 +275,25 @@ const styles = StyleSheet.create({
     borderColor: '#333',
   },
   signOutLabel: { fontSize: 14, color: '#666' },
-  devBtn: { paddingVertical: 6, paddingHorizontal: 12 },
-  devBtnLabel: { fontSize: 12, color: '#444' },
+
+  // League switcher (dev)
+  leagueSection: { gap: 8 },
+  leagueEmpty: { fontSize: 13, color: '#555', fontStyle: 'italic' },
+  leagueRow: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#111',
+    borderWidth: 1,
+    borderColor: '#222',
+  },
+  leagueRowActive: {
+    backgroundColor: '#1a1a2e',
+    borderColor: '#3a3a6a',
+  },
+  leagueName: { fontSize: 14, color: '#888', fontWeight: '600' },
+  leagueNameActive: { color: '#fff' },
+  leagueId: { fontSize: 10, color: '#444', marginTop: 2, fontFamily: 'JetBrainsMono_700Bold' },
 
   // Now Playing section
   playerSection: { alignItems: 'center', gap: 16 },

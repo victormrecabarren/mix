@@ -1,17 +1,29 @@
 import { supabase } from "@/lib/supabase";
 import { postgresToMixError } from "./errors";
 
-// Shape passed by the UI for each track slot. Maps to columns in `submissions`.
-export type TrackSelection = {
-  spotifyTrackId: string;
-  title: string;
-  artist: string;
-  artworkUrl: string | null;
-  isrc: string | null;
-  albumName: string | null;
-  durationMs: number | null;
-  popularity: number | null;
-};
+// Shape passed by the UI for each track slot. Discriminated by `source`;
+// each branch carries the fields needed to populate the matching DB columns.
+// A single submission row carries exactly one source's identity — the DB has
+// a check constraint that enforces this.
+export type TrackSelection =
+  | {
+      source: "spotify";
+      spotifyTrackId: string;
+      title: string;
+      artist: string;
+      artworkUrl: string | null;
+      isrc: string | null;
+      albumName: string | null;
+      durationMs: number | null;
+      popularity: number | null;
+    }
+  | {
+      source: "soundcloud";
+      soundcloudTrackUrl: string;
+      title: string;
+      artist: string;
+      artworkUrl: string | null;
+    };
 
 // One per slot. submissionId = null means "insert new"; otherwise "update".
 export type SubmissionDraft = {
@@ -28,16 +40,36 @@ export type SubmitRoundEntriesArgs = {
 
 function draftToColumns(draft: SubmissionDraft) {
   const { track } = draft;
-  return {
-    spotify_track_id: track.spotifyTrackId,
+  const common = {
     track_title: track.title,
     track_artist: track.artist,
     track_artwork_url: track.artworkUrl,
-    track_isrc: track.isrc ?? "",
-    track_album_name: track.albumName,
-    track_duration_ms: track.durationMs,
-    track_popularity: track.popularity,
     comment: draft.comment.trim() || null,
+  };
+  if (track.source === "spotify") {
+    return {
+      ...common,
+      track_source: "spotify" as const,
+      spotify_track_id: track.spotifyTrackId,
+      soundcloud_track_url: null,
+      track_isrc: track.isrc ?? "",
+      track_album_name: track.albumName,
+      track_duration_ms: track.durationMs,
+      track_popularity: track.popularity,
+    };
+  }
+  // SoundCloud: no ISRC / popularity / album-name / Spotify duration.
+  // track_isrc is NOT NULL in the schema, so we stash an empty string —
+  // matches the existing pattern for Spotify tracks missing an ISRC.
+  return {
+    ...common,
+    track_source: "soundcloud" as const,
+    spotify_track_id: null,
+    soundcloud_track_url: track.soundcloudTrackUrl,
+    track_isrc: "",
+    track_album_name: null,
+    track_duration_ms: null,
+    track_popularity: null,
   };
 }
 

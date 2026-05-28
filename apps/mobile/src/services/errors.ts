@@ -83,6 +83,12 @@ export class NotLeagueMemberError extends MixError {
   }
 }
 
+export class DuplicateTrackError extends MixError {
+  constructor(cause?: unknown) {
+    super("Someone already submitted this track for this round.", { cause });
+  }
+}
+
 // ─── Auth / generic ───────────────────────────────────────────────────────────
 
 export class NotAuthenticatedError extends MixError {
@@ -121,6 +127,18 @@ export function postgresToMixError(err: { message?: string | null } | null | und
   if (msg.includes("Previous round is still in progress")) return new PreviousRoundInProgressError(err);
   if (msg.includes("Spectators cannot submit")) return new SpectatorCannotSubmitError(err);
   if (msg.includes("not a member of this league")) return new NotLeagueMemberError(err);
+
+  // Unique-constraint violations on the round-dedup indexes. Index names line
+  // up with what the schema defines; the legacy `unique_track_per_round`
+  // constraint name is also matched so pre-migration deployments still get a
+  // typed error.
+  if (
+    msg.includes("unique_track_per_round") ||
+    msg.includes("submissions_unique_spotify_isrc_per_round") ||
+    msg.includes("submissions_unique_soundcloud_url_per_round")
+  ) {
+    return new DuplicateTrackError(err);
+  }
 
   return new UnknownMixError(msg, { cause: err });
 }

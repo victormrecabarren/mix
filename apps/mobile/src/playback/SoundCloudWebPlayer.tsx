@@ -26,6 +26,7 @@ interface SoundCloudPlayerContextValue {
   play: () => void;
   pause: () => void;
   seek: (ms: number) => void;
+  subscribeTrackEnd: (listener: () => void) => () => void;
 }
 
 // ─── HTML ─────────────────────────────────────────────────────────────────────
@@ -84,8 +85,20 @@ const PLAYER_HTML = `
     emitState(true);
   });
 
+  // SC's PLAY_PROGRESS fires several times per second while a track is
+  // playing. Capture the latest position into the closure and trickle a
+  // throttled stateChanged across the bridge so React's displayPositionMs
+  // (and the SeekBar) keep ticking. Without this, the time label stays
+  // frozen at whatever the last PLAY/PAUSE event carried — visible as
+  // (a) scrub-then-play stuck at the drop position and (b) 0:00 after
+  // an auto-advance into an SC track from a Spotify track.
+  var lastProgressEmit = 0;
   widget.bind(SC.Widget.Events.PLAY_PROGRESS, function(e) {
     currentPosition = e.currentPosition;
+    var now = Date.now();
+    if (now - lastProgressEmit < 500) return;
+    lastProgressEmit = now;
+    emitState(false);
   });
 
   widget.bind(SC.Widget.Events.FINISH, function() {
@@ -126,6 +139,7 @@ const SoundCloudPlayerContext = createContext<SoundCloudPlayerContextValue>({
   play: () => {},
   pause: () => {},
   seek: () => {},
+  subscribeTrackEnd: () => () => {},
 });
 
 export function useSoundCloudPlayer() {
@@ -138,6 +152,13 @@ export function SoundCloudPlayerProvider({ children }: { children: React.ReactNo
   const webViewRef = useRef<WebView>(null);
   const [isReady, setIsReady] = useState(false);
   const [trackState, setTrackState] = useState<SoundCloudTrackState | null>(null);
+  const trackEndListenersRef = useRef(new Set<() => void>());
+
+  const subscribeTrackEnd = useCallback((listener: () => void) => {
+    const set = trackEndListenersRef.current;
+    set.add(listener);
+    return () => { set.delete(listener); };
+  }, []);
 
   const inject = useCallback((js: string) => {
     webViewRef.current?.injectJavaScript(`${js}; true;`);
@@ -152,6 +173,9 @@ export function SoundCloudPlayerProvider({ children }: { children: React.ReactNo
         setTrackState(msg.state);
       } else if (msg.type === 'finished') {
         setTrackState((s) => s ? { ...s, isPaused: true } : s);
+        for (const fn of [...trackEndListenersRef.current]) {
+          try { fn(); } catch {}
+        }
       } else if (msg.type === 'error') {
         console.warn('[SoundCloudPlayer] error:', msg.message);
       }
@@ -167,7 +191,7 @@ export function SoundCloudPlayerProvider({ children }: { children: React.ReactNo
   const seek = useCallback((ms: number) => inject(`window.scSeek(${ms})`), [inject]);
 
   return (
-    <SoundCloudPlayerContext.Provider value={{ isReady, trackState, load, play, pause, seek }}>
+    <SoundCloudPlayerContext.Provider value={{ isReady, trackState, load, play, pause, seek, subscribeTrackEnd }}>
       <View style={styles.hidden}>
         <WebView
           ref={webViewRef}

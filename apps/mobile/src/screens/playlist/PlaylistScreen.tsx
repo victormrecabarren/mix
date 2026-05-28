@@ -61,7 +61,9 @@ type Submission = {
   track_title: string;
   track_artist: string;
   track_artwork_url: string | null;
+  track_source: "spotify" | "soundcloud";
   spotify_track_id: string | null;
+  soundcloud_track_url: string | null;
   track_isrc: string;
   comment: string | null;
   created_at?: string;
@@ -83,16 +85,29 @@ function pastelFor(id: string): string {
 }
 
 function submissionToPlaylistTrack(s: Submission): PlaylistTrack | null {
-  if (!s.spotify_track_id) return null;
-  return {
-    id: s.id,
-    source: "spotify",
-    uri: normalizeSpotifyTrackUri(s.spotify_track_id),
-    title: s.track_title,
-    artist: s.track_artist,
-    artworkUrl: s.track_artwork_url ?? "",
-    durationMs: 0,
-  };
+  if (s.track_source === "soundcloud" && s.soundcloud_track_url) {
+    return {
+      id: s.id,
+      source: "soundcloud",
+      uri: s.soundcloud_track_url,
+      title: s.track_title,
+      artist: s.track_artist,
+      artworkUrl: s.track_artwork_url ?? "",
+      durationMs: 0,
+    };
+  }
+  if (s.spotify_track_id) {
+    return {
+      id: s.id,
+      source: "spotify",
+      uri: normalizeSpotifyTrackUri(s.spotify_track_id),
+      title: s.track_title,
+      artist: s.track_artist,
+      artworkUrl: s.track_artwork_url ?? "",
+      durationMs: 0,
+    };
+  }
+  return null;
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -144,8 +159,7 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
 
   const onPlay = () => {
     if (orderedPlaylist.length === 0) return;
-    playback.setPlaylist(orderedPlaylist);
-    setTimeout(() => playback.playTrack(0), 0);
+    playback.playPlaylist(orderedPlaylist, 0);
   };
 
   const onAddToSpotify = () => {
@@ -262,6 +276,11 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
                 isWinner={winningSubId === sub.id}
                 voters={votersData[sub.id] ?? []}
                 isLast={idx === submissions.length - 1}
+                isCurrentTrack={playback.currentIndex === idx}
+                onPress={() => {
+                  if (orderedPlaylist.length === 0) return;
+                  playback.playPlaylist(orderedPlaylist, idx);
+                }}
               />
             ))}
           </View>
@@ -287,6 +306,8 @@ function PlaylistTrackRow({
   isWinner,
   voters,
   isLast,
+  isCurrentTrack,
+  onPress,
 }: {
   index: number;
   submission: Submission;
@@ -294,6 +315,8 @@ function PlaylistTrackRow({
   isWinner: boolean;
   voters: VoterRow[];
   isLast: boolean;
+  isCurrentTrack: boolean;
+  onPress: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   // Visible voters in the accordion: comment authors only (this screen is
@@ -317,8 +340,10 @@ function PlaylistTrackRow({
 
   return (
     <View>
-      <View style={styles.row}>
-        <Text style={styles.rowNum}>{String(index + 1).padStart(2, "0")}</Text>
+      <TouchableOpacity activeOpacity={0.7} onPress={onPress} style={styles.row}>
+        <Text style={[styles.rowNum, isCurrentTrack && styles.rowNumActive]}>
+          {isCurrentTrack ? "▶" : String(index + 1).padStart(2, "0")}
+        </Text>
         {submission.track_artwork_url ? (
           <ChromeBorder
             radius={8}
@@ -379,7 +404,7 @@ function PlaylistTrackRow({
         <View style={styles.ptsPill}>
           <Text style={styles.ptsPillText}>+{points}</Text>
         </View>
-      </View>
+      </TouchableOpacity>
 
       {expanded && hasComments ? (
         <View style={styles.commentsAccordion}>
@@ -540,6 +565,11 @@ const styles = StyleSheet.create({
     color: THEME.muted,
     width: 22,
     textAlign: "left",
+  },
+  rowNumActive: {
+    color: THEME.ink,
+    fontSize: 12,
+    letterSpacing: 0,
   },
   rowArt: {
     width: 44,
