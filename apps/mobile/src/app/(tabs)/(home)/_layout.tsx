@@ -15,7 +15,22 @@ export default function HomeStackLayout() {
         gestureEnabled: true,
       }}
     >
-      <Stack.Screen name="index"         options={{ headerShown: false }} />
+      {/* Transparent (not hidden) nav bar on the tab root so iOS 18's zoom
+          dismiss gesture doesn't trigger setNavigationBarHidden:YES on the
+          appearing VC. If hidden, react-native-screens animates the bar away
+          during the gesture and never restores it on cancellation, leaving
+          the pushed screen's back button gone. Transparent looks identical. */}
+      <Stack.Screen
+        name="index"
+        options={{
+          headerShown: true,
+          headerTransparent: true,
+          headerBlurEffect: undefined,
+          headerStyle: { backgroundColor: 'transparent' },
+          headerShadowVisible: false,
+          headerTitle: '',
+        }}
+      />
       <Stack.Screen name="create-league" options={{ title: 'New League' }} />
       <Stack.Screen name="create-season" options={{ title: 'New Season' }} />
       <Stack.Screen name="league/[id]"   options={{ title: 'League' }} />
