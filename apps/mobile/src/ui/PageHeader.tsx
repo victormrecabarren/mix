@@ -52,6 +52,7 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     ...THEME.text.homePageTitle,
+    fontStyle: "italic",
   },
   pageTitleSpacing: {
     marginTop: 4,

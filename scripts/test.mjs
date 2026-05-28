@@ -559,6 +559,90 @@ async function registerPlayer(env, args) {
   console.log(`✓ Registered "${name}" → ${id}`);
 }
 
+// ─── Active round / rounds list ──────────────────────────────────────────────
+
+// Mirrors the app's `getActiveRoundForLeague` selection: first round in the
+// active season whose voting hasn't closed yet, ordered by round_number asc.
+// Prints round id, number, prompt, and both deadlines so you can see which
+// round the home page will be showing — and whether the previous round still
+// blocks new submissions (look at the voting_deadline_at vs now).
+async function activeRound(env, args) {
+  const leagueId = args.league;
+  if (!leagueId) {
+    console.error('Usage: node scripts/test.mjs active-round --league <id>');
+    process.exit(1);
+  }
+  const nowIso = new Date().toISOString();
+
+  // Active season for the league.
+  const seasonRes = await sb(
+    env,
+    `/rest/v1/seasons?select=id,name&league_id=eq.${leagueId}&status=eq.active&limit=1`,
+  );
+  if (!seasonRes.ok) {
+    console.error('Season lookup failed:', seasonRes.data);
+    process.exit(1);
+  }
+  const season = seasonRes.data?.[0];
+  if (!season) {
+    console.log('No active season for league.');
+    return;
+  }
+
+  // First round whose voting is still open.
+  const roundRes = await sb(
+    env,
+    `/rest/v1/rounds?select=id,round_number,prompt,submission_deadline_at,voting_deadline_at&season_id=eq.${season.id}&voting_deadline_at=gt.${encodeURIComponent(nowIso)}&order=round_number.asc&limit=1`,
+  );
+  if (!roundRes.ok) {
+    console.error('Round lookup failed:', roundRes.data);
+    process.exit(1);
+  }
+  const round = roundRes.data?.[0];
+  console.log(`Active season: ${season.name} (${season.id})`);
+  if (!round) {
+    console.log('No active round (all rounds in this season have closed).');
+    return;
+  }
+  console.log(`Active round:`);
+  console.log(`  id:                    ${round.id}`);
+  console.log(`  round_number:          ${round.round_number}`);
+  console.log(`  prompt:                ${round.prompt}`);
+  console.log(`  submission_deadline:   ${round.submission_deadline_at}`);
+  console.log(`  voting_deadline:       ${round.voting_deadline_at}`);
+}
+
+// Dump all rounds in a season with their phase. Handy when "Previous round
+// is still in progress" trips you up — find the round whose voting hasn't
+// closed and either advance --vote-close 0 it or close-voting --round <id>.
+async function listRounds(env, args) {
+  const seasonId = args.season;
+  if (!seasonId) {
+    console.error('Usage: node scripts/test.mjs rounds --season <id>');
+    process.exit(1);
+  }
+  const res = await sb(
+    env,
+    `/rest/v1/rounds?select=id,round_number,prompt,submission_deadline_at,voting_deadline_at&season_id=eq.${seasonId}&order=round_number.asc`,
+  );
+  if (!res.ok) {
+    console.error('Rounds lookup failed:', res.data);
+    process.exit(1);
+  }
+  const now = Date.now();
+  for (const r of res.data ?? []) {
+    const sub = new Date(r.submission_deadline_at).getTime();
+    const vote = new Date(r.voting_deadline_at).getTime();
+    let phase;
+    if (now >= vote) phase = 'results';
+    else if (now >= sub) phase = 'voting';
+    else phase = 'submissions';
+    console.log(`R${String(r.round_number).padStart(2, '0')} [${phase.padEnd(11)}] ${r.id}  "${r.prompt}"`);
+    console.log(`    subs close: ${r.submission_deadline_at}`);
+    console.log(`    vote close: ${r.voting_deadline_at}`);
+  }
+}
+
 const commands = {
   'setup-players':    setupPlayers,
   'create-user':      createUser,
@@ -569,6 +653,8 @@ const commands = {
   vote:               voteForPlayer,
   'close-voting':     closeVoting,
   'round-results':    roundResults,
+  'active-round':     activeRound,
+  rounds:             listRounds,
 };
 
 const fn = commands[command];
@@ -583,6 +669,8 @@ if (!fn) {
   console.log('  vote           --player <A-E> --round <id>');
   console.log('  close-voting   [--round <id>]');
   console.log('  round-results  --round <id>');
+  console.log('  active-round   --league <id>');
+  console.log('  rounds         --season <id>');
   process.exit(1);
 }
 

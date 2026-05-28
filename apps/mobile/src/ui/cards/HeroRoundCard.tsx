@@ -14,6 +14,7 @@ import {
 import { ZoomSource } from "native-zoom";
 import { THEME } from "@/ui/theme";
 import { imageForKey } from "@/ui/theme/images";
+import { ChromeBorder } from "@/ui/ChromeBorder";
 
 // Where the active-card cover-fit crop is anchored in the source image.
 // 0% = top of source, 100% = bottom. Raise to slide the visible slice DOWN
@@ -81,60 +82,49 @@ export function HeroRoundCard({
     </View>
   ) : null;
 
+  // Caption + descriptor are no longer painted on the home page (the round
+  // prompt now renders below the card as its own halo'd headline). They
+  // remain in props for callers that still want them surfaced (e.g. the
+  // ui-preview playground); silence the lint warnings here.
+  void caption;
+  void prompt;
+  void descriptor;
+
   return (
     <View style={style}>
-      <View style={styles.meta}>
-        <Text style={styles.liveLabel}>{caption}</Text>
-        <Text style={styles.prompt}>{prompt}.</Text>
-        {descriptor ? <Text style={styles.descriptor}>{descriptor}</Text> : null}
-      </View>
-
-      <Pressable style={styles.imageWrap} onPress={onPress} disabled={!onPress}>
-        {zoomSourceId ? (
-          <ZoomSource zoomSourceId={zoomSourceId} style={styles.zoom}>
-            {imageNode}
-          </ZoomSource>
-        ) : (
-          <View style={styles.zoom}>{imageNode}</View>
-        )}
-        {liveDot ? (
-          <View style={styles.liveBadge} pointerEvents="none">
-            <View style={styles.liveDot} />
-            <Text style={styles.liveBadgeText}>Live</Text>
+      <ChromeBorder radius={22} thickness={2} clip style={styles.imageWrap}>
+        <Pressable style={styles.fill} onPress={onPress} disabled={!onPress}>
+          {zoomSourceId ? (
+            <ZoomSource zoomSourceId={zoomSourceId} style={styles.zoom}>
+              {imageNode}
+            </ZoomSource>
+          ) : (
+            <View style={styles.zoom}>{imageNode}</View>
+          )}
+          {liveDot ? (
+            <View style={styles.liveBadge} pointerEvents="none">
+              <View style={styles.liveDot} />
+              <Text style={styles.liveBadgeText}>LIVE</Text>
+            </View>
+          ) : null}
+          <View style={styles.imageFooter} pointerEvents="none">
+            <Text style={styles.phase}>{phaseLabel.toUpperCase()}</Text>
+            {ctaLabel ? <Text style={styles.cta}>{ctaLabel}</Text> : null}
           </View>
-        ) : null}
-        <View style={styles.imageFooter} pointerEvents="none">
-          <Text style={styles.phase}>{phaseLabel}</Text>
-          {ctaLabel ? <Text style={styles.cta}>{ctaLabel}</Text> : null}
-        </View>
-      </Pressable>
+        </Pressable>
+      </ChromeBorder>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  meta: { paddingHorizontal: 22, paddingTop: 10 },
-  liveLabel: {
-    ...THEME.text.homeLiveLabel,
-  },
-  prompt: {
-    ...THEME.text.homeHeroPrompt,
-    marginTop: 6,
-  },
-  descriptor: {
-    ...THEME.text.homeHeroDescriptor,
-    marginTop: 6,
-  },
-
   imageWrap: {
-    // Mathematically centered (22 on each side). If the card reads as
-    // left-leaning, that's the liveBadge + left-aligned meta above
-    // biasing your eye — bump the left margin +1-2pt to optically center.
+    // ChromeBorder owns the radius + clip. Margins, aspect ratio, and shadow
+    // stay on the outer wrapper so they apply to the metal ring, not the
+    // image inside.
     marginLeft: 22,
-    marginRight: 0,
+    marginRight: 22,
     marginTop: 14,
-    borderRadius: 22,
-    overflow: "hidden",
     aspectRatio: 16 / 10,
     shadowColor: THEME.ink,
     shadowOpacity: 0.16,
@@ -146,36 +136,57 @@ const styles = StyleSheet.create({
 
   liveBadge: {
     position: "absolute",
-    top: 14,
-    left: 14,
+    top: 12,
+    left: 12,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "rgba(255,255,255,0.92)",
+    backgroundColor: "rgba(255,255,255,0.95)",
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 999,
   },
   liveDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: THEME.accent,
+    // Reference uses the lime accent dot; bubblegum replaces accent with
+    // chrome on glyphs but a small red live dot reads as the system "rec"
+    // indicator everywhere.
+    backgroundColor: "#FF3B5C",
   },
   liveBadgeText: {
-    ...THEME.text.liveBadgeText,
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    color: THEME.ink,
   },
   imageFooter: {
     position: "absolute",
-    bottom: 14,
-    left: 14,
-    right: 14,
+    bottom: 16,
+    left: 16,
+    right: 16,
+    alignItems: "center",
   },
   phase: {
-    ...THEME.text.homeHeroPhase,
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 10,
+    letterSpacing: 1.6,
+    color: "rgba(255,255,255,0.95)",
+    textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.45)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   cta: {
-    ...THEME.text.homeHeroCta,
-    marginTop: 4,
+    fontFamily: THEME.fonts.serifMediumItalic,
+    fontSize: 20,
+    lineHeight: 24,
+    color: "#fff",
+    marginTop: 6,
+    textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.5)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
 });
