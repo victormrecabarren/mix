@@ -6,11 +6,9 @@
 // The visual design is ported from `apps/mobile/src/app/ui-preview/_NowPlayingBar.tsx`.
 // Keep both in lockstep until that file becomes a thin shim around this one.
 
-import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { FastForward, Pause, Play, Rewind } from "lucide-react-native";
 import {
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -19,6 +17,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { CoverArt } from "@/ui/CoverArt";
+import { GlassSurface } from "@/ui/glass/GlassSurface";
 import { THEME } from "@/ui/theme/tokens";
 
 export interface NowPlayingPillProps {
@@ -61,11 +60,9 @@ export function NowPlayingPill({
 
   return (
     <View style={[styles.wrap, style]}>
-      <BlurView
-        intensity={80}
-        tint={
-          Platform.OS === "ios" ? "systemUltraThinMaterialLight" : "light"
-        }
+      <GlassSurface
+        glassEffectStyle="clear"
+        fallbackBlurIntensity={45}
         style={styles.pill}
       >
         <Pressable
@@ -99,24 +96,44 @@ export function NowPlayingPill({
                 hitSlop={8}
                 onPress={onPrevious}
               >
-                <Rewind size={22} color={THEME.ink} fill={THEME.ink} strokeWidth={0} />
+                <Rewind
+                  size={22}
+                  color={THEME.ink}
+                  fill={THEME.ink}
+                  strokeWidth={0}
+                />
               </Pressable>
             ) : null}
             <Pressable style={styles.iconBtn} hitSlop={8} onPress={onPlayPause}>
               {isPlaying ? (
-                <Pause size={22} color={THEME.ink} fill={THEME.ink} strokeWidth={0} />
+                <Pause
+                  size={22}
+                  color={THEME.ink}
+                  fill={THEME.ink}
+                  strokeWidth={0}
+                />
               ) : (
-                <Play size={22} color={THEME.ink} fill={THEME.ink} strokeWidth={0} />
+                <Play
+                  size={22}
+                  color={THEME.ink}
+                  fill={THEME.ink}
+                  strokeWidth={0}
+                />
               )}
             </Pressable>
             {onNext ? (
               <Pressable style={styles.iconBtn} hitSlop={8} onPress={onNext}>
-                <FastForward size={22} color={THEME.ink} fill={THEME.ink} strokeWidth={0} />
+                <FastForward
+                  size={22}
+                  color={THEME.ink}
+                  fill={THEME.ink}
+                  strokeWidth={0}
+                />
               </Pressable>
             ) : null}
           </View>
         </Pressable>
-      </BlurView>
+      </GlassSurface>
     </View>
   );
 }
