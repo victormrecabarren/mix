@@ -189,12 +189,12 @@ export const BUBBLEGUM_THEME: MixTheme = {
     nowPlayingTitle: {
       fontFamily: fonts.sansSemi,
       fontSize: 14,
-      color: colors.navInk,
+      color: colors.ink,
     },
     nowPlayingArtist: {
       fontFamily: fonts.sansMedium,
       fontSize: 12,
-      color: colors.navInk,
+      color: colors.inkMuted,
     },
     tabLabel: {
       fontFamily: fonts.sansSemi,
