@@ -133,11 +133,6 @@ const SEASONS: Array<{
   },
 ];
 
-const PLAYERS = [
-  { id: "nia", displayName: "Nia" },
-  { id: "jules", displayName: "Jules" },
-  { id: "theo", displayName: "Theo" },
-];
 
 // ── Screen ───────────────────────────────────────────────────────────
 
@@ -201,7 +196,6 @@ export default function V1ArchiveHome() {
           <PageHeader
             leagueTag="Ghost Mall FM"
             title="Home"
-            participants={PLAYERS}
           />
 
           <HeroRoundCard
