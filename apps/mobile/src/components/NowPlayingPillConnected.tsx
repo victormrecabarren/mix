@@ -18,12 +18,14 @@ export function NowPlayingPillConnected() {
     pause,
     resume,
     next,
+    previous,
   } = usePlayback();
   const [expanded, setExpanded] = useState(false);
 
   if (currentIndex === null) return null;
 
   const hasNext = currentIndex < playlist.length - 1;
+  const hasPrevious = currentIndex > 0;
 
   return (
     <>
@@ -34,6 +36,7 @@ export function NowPlayingPillConnected() {
         isPlaying={isPlaying}
         onPlayPause={isPlaying ? pause : resume}
         onNext={hasNext ? next : undefined}
+        onPrevious={hasPrevious ? previous : undefined}
         onPress={() => setExpanded(true)}
       />
       <NowPlayingModal visible={expanded} onClose={() => setExpanded(false)} />

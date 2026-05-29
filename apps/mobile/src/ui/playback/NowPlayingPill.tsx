@@ -8,7 +8,9 @@
 
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
+import { FastForward, Pause, Play, Rewind } from "lucide-react-native";
 import {
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -34,6 +36,8 @@ export interface NowPlayingPillProps {
   isPlaying: boolean;
   onPlayPause: () => void;
   onNext?: () => void;
+  /** When omitted, the previous button is hidden entirely (first track). */
+  onPrevious?: () => void;
   onPress?: () => void;
   style?: StyleProp<ViewStyle>;
 }
@@ -47,6 +51,7 @@ export function NowPlayingPill({
   isPlaying,
   onPlayPause,
   onNext,
+  onPrevious,
   onPress,
   style,
 }: NowPlayingPillProps) {
@@ -56,7 +61,13 @@ export function NowPlayingPill({
 
   return (
     <View style={[styles.wrap, style]}>
-      <BlurView intensity={55} tint="light" style={styles.pill}>
+      <BlurView
+        intensity={80}
+        tint={
+          Platform.OS === "ios" ? "systemUltraThinMaterialLight" : "light"
+        }
+        style={styles.pill}
+      >
         <Pressable
           style={styles.pillInner}
           onPress={onPress}
@@ -81,24 +92,29 @@ export function NowPlayingPill({
               </Text>
             ) : null}
           </View>
-          <Pressable style={styles.iconBtn} hitSlop={8} onPress={onPlayPause}>
-            {isPlaying ? (
-              <View style={styles.pauseRow}>
-                <View style={styles.pauseBar} />
-                <View style={[styles.pauseBar, { marginLeft: 4 }]} />
-              </View>
-            ) : (
-              <View style={styles.playTriangle} />
-            )}
-          </Pressable>
-          {onNext ? (
-            <Pressable style={styles.iconBtn} hitSlop={8} onPress={onNext}>
-              <View style={styles.skipRow}>
-                <View style={styles.skipTriangle} />
-                <View style={[styles.skipTriangle, { marginLeft: 2 }]} />
-              </View>
+          <View style={styles.controls}>
+            {onPrevious ? (
+              <Pressable
+                style={styles.iconBtn}
+                hitSlop={8}
+                onPress={onPrevious}
+              >
+                <Rewind size={22} color={THEME.ink} fill={THEME.ink} strokeWidth={0} />
+              </Pressable>
+            ) : null}
+            <Pressable style={styles.iconBtn} hitSlop={8} onPress={onPlayPause}>
+              {isPlaying ? (
+                <Pause size={22} color={THEME.ink} fill={THEME.ink} strokeWidth={0} />
+              ) : (
+                <Play size={22} color={THEME.ink} fill={THEME.ink} strokeWidth={0} />
+              )}
             </Pressable>
-          ) : null}
+            {onNext ? (
+              <Pressable style={styles.iconBtn} hitSlop={8} onPress={onNext}>
+                <FastForward size={22} color={THEME.ink} fill={THEME.ink} strokeWidth={0} />
+              </Pressable>
+            ) : null}
+          </View>
         </Pressable>
       </BlurView>
     </View>
@@ -106,63 +122,45 @@ export function NowPlayingPill({
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 10 },
+  wrap: {
+    paddingHorizontal: 10,
+    // Lift the pill off the wallpaper. iOS shadow + Android elevation.
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
   pill: {
-    borderRadius: 32,
+    borderRadius: 30,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(11,11,11,0.06)",
+    borderColor: "rgba(255,255,255,0.35)",
   },
   pillInner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: "rgba(246,241,232,0.55)",
+    gap: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   art: {
     width: 40,
     height: 40,
-    borderRadius: 8,
+    borderRadius: 5,
   },
   meta: { flex: 1, minWidth: 0 },
   title: { ...THEME.text.nowPlayingTitle },
   artist: { ...THEME.text.nowPlayingArtist, marginTop: 1 },
+  controls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
   iconBtn: {
     width: 36,
     height: 36,
     alignItems: "center",
     justifyContent: "center",
-  },
-  // Play triangle (rotated 90° so it points right).
-  playTriangle: {
-    width: 0,
-    height: 0,
-    borderTopWidth: 9,
-    borderBottomWidth: 9,
-    borderLeftWidth: 14,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderLeftColor: THEME.ink,
-    marginLeft: 2,
-  },
-  pauseRow: { flexDirection: "row", alignItems: "center" },
-  pauseBar: {
-    width: 4,
-    height: 14,
-    backgroundColor: THEME.ink,
-    borderRadius: 1,
-  },
-  skipRow: { flexDirection: "row", alignItems: "center" },
-  skipTriangle: {
-    width: 0,
-    height: 0,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderLeftWidth: 11,
-    borderTopColor: "transparent",
-    borderBottomColor: "transparent",
-    borderLeftColor: THEME.ink,
   },
 });

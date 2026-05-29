@@ -45,6 +45,7 @@ import { ChromeText } from "@/ui/ChromeText";
 import { ChromeBorder } from "@/ui/ChromeBorder";
 import { ChromeButton } from "@/ui/ChromeButton";
 import { RoundHero, ROUND_HERO_IMAGE_KEY } from "@/ui/cards/RoundHero";
+import { PlayingIndicator } from "@/ui/playback/PlayingIndicator";
 
 if (
   Platform.OS === "android" &&
@@ -267,22 +268,31 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
 
           {/* Playlist rows */}
           <View style={styles.playlistBody}>
-            {submissions.map((sub, idx) => (
-              <PlaylistTrackRow
-                key={sub.id}
-                index={idx}
-                submission={sub}
-                points={pointsBySub[sub.id] ?? 0}
-                isWinner={winningSubId === sub.id}
-                voters={votersData[sub.id] ?? []}
-                isLast={idx === submissions.length - 1}
-                isCurrentTrack={playback.currentIndex === idx}
-                onPress={() => {
-                  if (orderedPlaylist.length === 0) return;
-                  playback.playPlaylist(orderedPlaylist, idx);
-                }}
-              />
-            ))}
+            {submissions.map((sub, idx) => {
+              // ID-based current-track match — works even when the currently
+              // playing track is from a different playlist than this round.
+              const playingTrackId =
+                playback.currentIndex !== null
+                  ? playback.playlist[playback.currentIndex]?.id
+                  : null;
+              const isCurrentTrack = playingTrackId === sub.id;
+              return (
+                <PlaylistTrackRow
+                  key={sub.id}
+                  submission={sub}
+                  points={pointsBySub[sub.id] ?? 0}
+                  isWinner={winningSubId === sub.id}
+                  voters={votersData[sub.id] ?? []}
+                  isLast={idx === submissions.length - 1}
+                  isCurrentTrack={isCurrentTrack}
+                  isPlaying={isCurrentTrack && playback.isPlaying}
+                  onPress={() => {
+                    if (orderedPlaylist.length === 0) return;
+                    playback.playPlaylist(orderedPlaylist, idx);
+                  }}
+                />
+              );
+            })}
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -300,22 +310,22 @@ type VoterRow = {
 };
 
 function PlaylistTrackRow({
-  index,
   submission,
   points,
   isWinner,
   voters,
   isLast,
   isCurrentTrack,
+  isPlaying,
   onPress,
 }: {
-  index: number;
   submission: Submission;
   points: number;
   isWinner: boolean;
   voters: VoterRow[];
   isLast: boolean;
   isCurrentTrack: boolean;
+  isPlaying: boolean;
   onPress: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -341,9 +351,6 @@ function PlaylistTrackRow({
   return (
     <View>
       <TouchableOpacity activeOpacity={0.7} onPress={onPress} style={styles.row}>
-        <Text style={[styles.rowNum, isCurrentTrack && styles.rowNumActive]}>
-          {isCurrentTrack ? "▶" : String(index + 1).padStart(2, "0")}
-        </Text>
         {submission.track_artwork_url ? (
           <ChromeBorder
             radius={8}
@@ -355,9 +362,12 @@ function PlaylistTrackRow({
               source={{ uri: submission.track_artwork_url }}
               style={{ width: "100%", height: "100%" }}
             />
+            {isCurrentTrack ? <PlayingIndicator isPlaying={isPlaying} /> : null}
           </ChromeBorder>
         ) : (
-          <View style={[styles.rowArt, styles.rowArtPh]} />
+          <View style={[styles.rowArt, styles.rowArtPh]}>
+            {isCurrentTrack ? <PlayingIndicator isPlaying={isPlaying} /> : null}
+          </View>
         )}
         <View style={styles.rowMeta}>
           <View style={styles.rowTitleLine}>
@@ -557,19 +567,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 8,
     gap: 10,
-  },
-  rowNum: {
-    fontFamily: THEME.fonts.monoBold,
-    fontSize: 11,
-    letterSpacing: 1.2,
-    color: THEME.muted,
-    width: 22,
-    textAlign: "left",
-  },
-  rowNumActive: {
-    color: THEME.ink,
-    fontSize: 12,
-    letterSpacing: 0,
   },
   rowArt: {
     width: 44,
