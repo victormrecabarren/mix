@@ -119,7 +119,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "visible",
-    paddingHorizontal: 8,
+    paddingLeft: 8,
+    paddingRight: 20,
     paddingVertical: 3,
   },
   lineText: {
