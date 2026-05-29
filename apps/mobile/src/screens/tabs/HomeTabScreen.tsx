@@ -535,6 +535,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     gap: 4,
     paddingHorizontal: 22,
+    overflow: 'visible',
   },
   roundTitleTagline: {
     fontFamily: THEME.fonts.serifItalic,
@@ -550,6 +551,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     paddingHorizontal: 18,
     paddingVertical: 14,
+    overflow: 'visible',
   },
   roundTitleText: {
     fontFamily: THEME.fonts.serifBoldItalic,

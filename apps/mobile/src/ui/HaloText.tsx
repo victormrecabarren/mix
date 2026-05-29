@@ -57,7 +57,7 @@ export function HaloText({
   tint = "light",
 }: HaloTextProps) {
   return (
-    <View style={style}>
+    <View style={[style, { overflow: 'visible' }]}>
       <View
         pointerEvents="none"
         style={{
