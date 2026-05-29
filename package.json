@@ -17,6 +17,8 @@
     "android": "pnpm --filter @mix/mobile android",
     "ios": "pnpm --filter @mix/mobile ios",
     "ios:sim": "pnpm --filter @mix/mobile ios:sim",
+    "ios:device": "pnpm --filter @mix/mobile ios:device",
+    "vic": "pnpm --filter @mix/mobile vic",
     "setup": "pnpm install && pnpm --filter @mix/mobile prebuild"
   },
   "devDependencies": {
@@ -27,5 +29,10 @@
     "pnpm": ">=9.0.0"
   },
   "packageManager": "pnpm@10.17.0",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "pnpm": {
+    "overrides": {
+      "react-native-svg": "~15.12.1"
+    }
+  }
 }

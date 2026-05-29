@@ -145,6 +145,40 @@ deliberately rather than folding everything into services.
 
 ---
 
+## Installing and upgrading packages
+
+This is a pnpm monorepo with an Expo SDK mobile app. The Expo SDK pins tested
+versions of every native module via `bundledNativeModules.json`. Installing a
+native dep outside that matrix breaks the iOS/Android build (wrong ABI,
+missing codegen symbols, etc.).
+
+**Rule: always use `expo install` for any package that has a native iOS/Android
+component. Never use `pnpm add` directly for these.**
+
+```
+# correct
+pnpm --filter @mix/mobile exec npx expo install <pkg>
+
+# wrong — bypasses Expo's version matrix
+pnpm --filter @mix/mobile add <pkg>
+pnpm add <pkg>
+```
+
+Pure JS packages (no native module) may use `pnpm add` as normal.
+
+If unsure whether a package is native, default to `expo install`.
+
+After installing a native package, pod install is required before building:
+```
+pnpm --filter @mix/mobile exec pod install --project-directory=ios
+```
+
+Root `package.json` carries a `pnpm.overrides` block that enforces Expo SDK 54
+version ceilings on known-problematic native deps. When upgrading the Expo SDK,
+update those overrides to match the new SDK's pinned versions.
+
+---
+
 ## Known tech debt tracked against the pattern
 
 - `packages/db/types.ts` is stale; some services cast through `unknown`.
