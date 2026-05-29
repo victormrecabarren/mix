@@ -119,14 +119,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "visible",
-    paddingLeft: 8,
-    paddingRight: 20,
+    paddingHorizontal: 8,
     paddingVertical: 3,
   },
   lineText: {
     flexShrink: 1,
     minWidth: 0,
-    width: "auto",
+    width: "100%",
   },
   accent: {
     flexShrink: 0,
