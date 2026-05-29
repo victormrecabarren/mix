@@ -62,7 +62,8 @@ export function NowPlayingPill({
     <View style={[styles.wrap, style]}>
       <GlassSurface
         glassEffectStyle="clear"
-        fallbackBlurIntensity={45}
+        interactive
+        fallbackBlurIntensity={65}
         style={styles.pill}
       >
         <Pressable
