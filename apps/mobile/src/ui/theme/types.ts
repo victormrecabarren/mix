@@ -61,6 +61,7 @@ export type MixTheme = {
     serifMedium: string;
     serifMediumItalic: string;
     serifBold: string;
+    serifBoldItalic: string;
     sans: string;
     sansMedium: string;
     sansSemi: string;

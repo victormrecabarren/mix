@@ -3362,8 +3362,7 @@ const styles = StyleSheet.create({
     // into a hard rectangle.
   },
   heroTitle: {
-    fontFamily: THEME.fonts.serifBold,
-    fontStyle: "italic",
+    fontFamily: THEME.fonts.serifBoldItalic,
     fontSize: 74,
     lineHeight: 80,
     letterSpacing: -3,
@@ -3554,8 +3553,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   voteTitleOnHero: {
-    fontFamily: THEME.fonts.serifBold,
-    fontStyle: "italic",
+    fontFamily: THEME.fonts.serifBoldItalic,
     fontSize: 28,
     lineHeight: 32,
     letterSpacing: -0.6,
@@ -3563,8 +3561,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   voteTitle: {
-    fontFamily: THEME.fonts.serifBold,
-    fontStyle: "italic",
+    fontFamily: THEME.fonts.serifBoldItalic,
     fontSize: 28,
     lineHeight: 32,
     letterSpacing: -0.6,
@@ -3884,8 +3881,7 @@ const styles = StyleSheet.create({
     flexWrap: "nowrap",
   },
   resultsTitle: {
-    fontFamily: THEME.fonts.serifBold,
-    fontStyle: "italic",
+    fontFamily: THEME.fonts.serifBoldItalic,
     fontSize: 56,
     lineHeight: 54,
     letterSpacing: -2.2,

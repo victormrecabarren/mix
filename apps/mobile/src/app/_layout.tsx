@@ -8,6 +8,7 @@ import {
   Fraunces_500Medium,
   Fraunces_500Medium_Italic,
   Fraunces_700Bold,
+  Fraunces_700Bold_Italic,
 } from "@expo-google-fonts/fraunces";
 import {
   InterTight_400Regular,
@@ -85,6 +86,7 @@ export default function RootLayout() {
     Fraunces_500Medium,
     Fraunces_500Medium_Italic,
     Fraunces_700Bold,
+    Fraunces_700Bold_Italic,
     InterTight_400Regular,
     InterTight_500Medium,
     InterTight_600SemiBold,

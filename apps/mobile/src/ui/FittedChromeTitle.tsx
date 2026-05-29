@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
   lineText: {
     flexShrink: 1,
     minWidth: 0,
-    width: "auto",
+    width: "100%",
   },
   accent: {
     flexShrink: 0,

@@ -13,6 +13,7 @@ const fonts = {
   serifMedium: "Fraunces_500Medium",
   serifMediumItalic: "Fraunces_500Medium_Italic",
   serifBold: "Fraunces_700Bold",
+  serifBoldItalic: "Fraunces_700Bold_Italic",
   sans: "InterTight_400Regular",
   sansMedium: "InterTight_500Medium",
   sansSemi: "InterTight_600SemiBold",
@@ -80,8 +81,7 @@ export const BUBBLEGUM_THEME: MixTheme = {
       color: colors.ink,
     },
     homePageTitle: {
-      fontFamily: fonts.serifBold,
-      fontStyle: "italic",
+      fontFamily: fonts.serifBoldItalic,
       fontSize: 48,
       lineHeight: 50,
       letterSpacing: -1.8,
