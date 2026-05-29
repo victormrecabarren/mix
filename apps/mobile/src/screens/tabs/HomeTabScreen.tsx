@@ -28,7 +28,6 @@ import { useSession } from '@/context/SessionContext';
 import { useLeague as useLeagueContext } from '@/context/LeagueContext';
 
 import { useLeague } from '@/queries/useLeague';
-import { useLeagueMembers } from '@/queries/useLeagueMembers';
 import { useActiveSeasonForLeague } from '@/queries/useActiveSeasonForLeague';
 import { useActiveRoundForLeague } from '@/queries/useActiveRoundForLeague';
 import { useRound } from '@/queries/useRound';
@@ -157,7 +156,6 @@ function HomeTabContent({
   }, [queryClient]);
 
   const { data: league } = useLeague(leagueId);
-  const { data: members = [] } = useLeagueMembers(leagueId);
   const { data: activeSeason } = useActiveSeasonForLeague(leagueId);
   const { data: activeRoundLookup } = useActiveRoundForLeague(leagueId);
   const activeRoundId = activeRoundLookup?.round?.roundId;
@@ -262,16 +260,6 @@ function HomeTabContent({
     userId,
   ]);
 
-  // Header participants (drop spectators per CLAUDE.md guidance for the
-  // avatar stack).
-  const participants = useMemo(
-    () =>
-      members
-        .filter((m) => m.role !== 'spectator')
-        .map((m) => ({ id: m.user_id, displayName: m.display_name })),
-    [members],
-  );
-
   // Hero card data.
   const hero = useMemo(() => {
     if (!round) return null;
@@ -366,7 +354,6 @@ function HomeTabContent({
           <PageHeader
             leagueTag={league?.name}
             title="Home"
-            participants={participants}
             trailing={commissionerTrailing}
           />
 
@@ -551,10 +538,10 @@ const styles = StyleSheet.create({
   },
   roundTitleTagline: {
     fontFamily: THEME.fonts.serifItalic,
-    fontSize: 14,
+    fontSize: 17,
     color: THEME.ink,
     // Raise above HaloText's spill so the blur doesn't capture this label.
-    zIndex: 1,
+    zIndex: 2,
   },
   roundTitleHaloWrap: {
     flexDirection: 'row',
@@ -565,8 +552,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   roundTitleText: {
-    fontFamily: THEME.fonts.serifBold,
-    fontStyle: 'italic',
+    fontFamily: THEME.fonts.serifBoldItalic,
     fontSize: 52,
     lineHeight: 56,
     letterSpacing: -2.2,

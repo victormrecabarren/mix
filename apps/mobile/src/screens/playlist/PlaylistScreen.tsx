@@ -464,8 +464,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   titleText: {
-    fontFamily: THEME.fonts.serifBold,
-    fontStyle: "italic",
+    fontFamily: THEME.fonts.serifBoldItalic,
     fontSize: 28,
     lineHeight: 32,
     letterSpacing: -0.6,

@@ -5,34 +5,26 @@
 import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { THEME } from "@/ui/theme";
-import {
-  AvatarStack,
-  type AvatarParticipant,
-} from "@/ui/sections/AvatarStack";
 
 export type PageHeaderProps = {
   leagueTag?: string;
   title: string;
-  participants?: AvatarParticipant[];
   trailing?: ReactNode;
 };
 
 export function PageHeader({
   leagueTag,
   title,
-  participants,
   trailing,
 }: PageHeaderProps) {
-  const hasParticipants = participants && participants.length > 0;
   return (
     <View style={styles.header}>
       <View style={styles.left}>
         {leagueTag ? <Text style={styles.leagueTag}>{leagueTag}</Text> : null}
-        <Text style={[styles.pageTitle, leagueTag ? styles.pageTitleSpacing : null]}>
+        <Text numberOfLines={1} style={[styles.pageTitle, leagueTag ? styles.pageTitleSpacing : null]}>
           {title}
         </Text>
       </View>
-      {hasParticipants ? <AvatarStack participants={participants!} /> : null}
       {trailing}
     </View>
   );
@@ -52,7 +44,6 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     ...THEME.text.homePageTitle,
-    fontStyle: "italic",
   },
   pageTitleSpacing: {
     marginTop: 4,
