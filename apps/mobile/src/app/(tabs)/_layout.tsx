@@ -1,51 +1,82 @@
-import { Tabs } from 'expo-router';
+import {
+  NativeTabs,
+  NativeTabTrigger,
+} from 'expo-router/unstable-native-tabs';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MixTabBar } from '@/ui/nav/MixTabBar';
 import { NowPlayingPillConnected } from '@/components/NowPlayingPillConnected';
 import { THEME } from '@/ui/theme/tokens';
+import {
+  FLOATING_CHROME_GAP,
+  NATIVE_TAB_BAR_HEIGHT,
+} from '@/ui/nav/floatingChromeMetrics';
+
+const ACTIVE_RED = '#FC3C44';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
   return (
     <View style={styles.root}>
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarStyle: { display: 'none' },
-          sceneStyle: { backgroundColor: THEME.bg },
-        }}
-        tabBar={(props) => (
-          <View
-            style={[
-              styles.bottomChrome,
-              { paddingBottom: Math.max(insets.bottom - 14, 4) },
-            ]}
-            pointerEvents="box-none"
-          >
-            <View style={styles.chromeStack} pointerEvents="box-none">
-              <NowPlayingPillConnected />
-              <MixTabBar {...props} />
-            </View>
-          </View>
-        )}
+      <NativeTabs tintColor={ACTIVE_RED}>
+        <NativeTabTrigger
+          name="(home)"
+          options={{
+            title: 'Home',
+            icon: { sf: 'house.fill' },
+          }}
+        />
+        <NativeTabTrigger
+          name="mix"
+          options={{
+            title: 'Mix',
+            icon: { sf: 'music.note' },
+          }}
+        />
+        <NativeTabTrigger
+          name="activity"
+          options={{
+            title: 'Activity',
+            icon: { sf: 'chart.bar.fill' },
+          }}
+        />
+        <NativeTabTrigger
+          name="profile"
+          options={{
+            title: 'Profile',
+            icon: { sf: 'person.fill' },
+          }}
+        />
+        <NativeTabTrigger
+          name="search"
+          options={{
+            title: 'Search',
+            icon: { sf: 'magnifyingglass' },
+          }}
+        />
+      </NativeTabs>
+
+      <View
+        style={[
+          styles.pillOverlay,
+          {
+            bottom:
+              NATIVE_TAB_BAR_HEIGHT + insets.bottom + FLOATING_CHROME_GAP,
+          },
+        ]}
+        pointerEvents="box-none"
       >
-        <Tabs.Screen name="(home)" options={{ title: 'Home' }} />
-        <Tabs.Screen name="mix" options={{ title: 'Mix' }} />
-        <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
-      </Tabs>
+        <NowPlayingPillConnected />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: THEME.bg },
-  bottomChrome: {
+  pillOverlay: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
   },
-  chromeStack: { gap: 6 },
 });

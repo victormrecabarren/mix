@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { CoverArt } from "@/ui/CoverArt";
 import { GlassSurface } from "@/ui/glass/GlassSurface";
+import { FLOATING_CHROME_HORIZONTAL_INSET } from "@/ui/nav/floatingChromeMetrics";
 import { THEME } from "@/ui/theme/tokens";
 
 export interface NowPlayingPillProps {
@@ -97,7 +98,7 @@ export function NowPlayingPill({
                 onPress={onPrevious}
               >
                 <Rewind
-                  size={22}
+                  size={20}
                   color={THEME.ink}
                   fill={THEME.ink}
                   strokeWidth={0}
@@ -107,14 +108,14 @@ export function NowPlayingPill({
             <Pressable style={styles.iconBtn} hitSlop={8} onPress={onPlayPause}>
               {isPlaying ? (
                 <Pause
-                  size={22}
+                  size={20}
                   color={THEME.ink}
                   fill={THEME.ink}
                   strokeWidth={0}
                 />
               ) : (
                 <Play
-                  size={22}
+                  size={20}
                   color={THEME.ink}
                   fill={THEME.ink}
                   strokeWidth={0}
@@ -124,7 +125,7 @@ export function NowPlayingPill({
             {onNext ? (
               <Pressable style={styles.iconBtn} hitSlop={8} onPress={onNext}>
                 <FastForward
-                  size={22}
+                  size={20}
                   color={THEME.ink}
                   fill={THEME.ink}
                   strokeWidth={0}
@@ -140,19 +141,18 @@ export function NowPlayingPill({
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingHorizontal: 10,
-    // Lift the pill off the wallpaper. iOS shadow + Android elevation.
+    paddingHorizontal: FLOATING_CHROME_HORIZONTAL_INSET,
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   pill: {
-    borderRadius: 30,
+    borderRadius: 24,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.25)",
+    borderColor: "rgba(255,255,255,0.15)",
   },
   pillInner: {
     flexDirection: "row",
