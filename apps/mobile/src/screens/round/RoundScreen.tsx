@@ -386,9 +386,7 @@ function TrackRow({
 // chrome glyph accents, baby-pink pick cards. See `ui/theme/bubblegum.ts`
 // for the token spec; matches Claude Design's Submit screen mock.
 
-// DEV: 5 s so any track triggers the limit during testing.
-// PROD: 27 minutes.
-const MAX_TRACK_DURATION_MS = __DEV__ ? 5_000 : 27 * 60 * 1000;
+const MAX_TRACK_DURATION_MS = 27 * 60 * 1000;
 
 function TrackLimitBanner({
   durationMs,
