@@ -40,6 +40,7 @@ if (
 import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Wallpaper } from "@/ui/Wallpaper";
+import { KeyboardScroll } from "@/components/KeyboardScroll";
 import { ChromeText } from "@/ui/ChromeText";
 import { ChromeBorder } from "@/ui/ChromeBorder";
 import { ChromeButton } from "@/ui/ChromeButton";
@@ -2710,39 +2711,35 @@ export function RoundScreen({
             ),
           }}
         />
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={88}
-        >
-          <Wallpaper>
-            <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-              <ScrollView
-                ref={scrollViewRef}
-                contentContainerStyle={[
-                  styles.submitScroll,
-                  { paddingBottom: bottomInset + 24 },
-                ]}
-                keyboardShouldPersistTaps="handled"
-                refreshControl={
-                  <RefreshControl
-                    refreshing={refreshing}
-                    onRefresh={onRefresh}
-                    tintColor={THEME.ink}
-                  />
-                }
-              >
-                <SubmissionsHero round={round} countdown={countdown} />
-                <SubmissionPhase
-                  round={round}
-                  userId={userId}
-                  mySubmissions={mySubmissions}
-                  onSubmitted={() => router.back()}
+        <Wallpaper>
+          <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
+            <KeyboardScroll
+              contentContainerStyle={[
+                styles.submitScroll,
+                { paddingBottom: bottomInset + 36 },
+              ]}
+              // Gap kept between the keyboard and the focused field. Bump this
+              // if a field still feels too close to the keyboard.
+              extraScrollHeight={48}
+              enableOnAndroid
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={THEME.ink}
                 />
-              </ScrollView>
-            </SafeAreaView>
-          </Wallpaper>
-        </KeyboardAvoidingView>
+              }
+            >
+              <SubmissionsHero round={round} countdown={countdown} />
+              <SubmissionPhase
+                round={round}
+                userId={userId}
+                mySubmissions={mySubmissions}
+                onSubmitted={() => router.back()}
+              />
+            </KeyboardScroll>
+          </SafeAreaView>
+        </Wallpaper>
       </>
     );
   }
