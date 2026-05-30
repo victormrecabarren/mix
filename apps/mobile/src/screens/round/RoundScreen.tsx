@@ -13,6 +13,7 @@ import {
   TextInput,
   Alert,
   Image,
+  Animated,
   LayoutAnimation,
   UIManager,
   useWindowDimensions,
@@ -166,6 +167,7 @@ type DraftSubmission = {
   searchResults: PickedTrack[];
   isSearching: boolean;
   isEditingTrack: boolean;
+  trackLimitError: { durationMs: number } | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -177,6 +179,13 @@ function formatDeadline(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatDurationMs(ms: number): string {
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function submissionToTrack(submission: Submission): PickedTrack {
@@ -230,6 +239,7 @@ function createDraftSubmission(
     // placeholders. The first empty slot auto-expands so the editor is ready
     // without an extra tap.
     isEditingTrack: existing ? false : autoExpand,
+    trackLimitError: null,
   };
 }
 
@@ -376,6 +386,66 @@ function TrackRow({
 // chrome glyph accents, baby-pink pick cards. See `ui/theme/bubblegum.ts`
 // for the token spec; matches Claude Design's Submit screen mock.
 
+const MAX_TRACK_DURATION_MS = 27 * 60 * 1000;
+
+function TrackLimitBanner({
+  durationMs,
+  onDismiss,
+}: {
+  durationMs: number;
+  onDismiss: () => void;
+}) {
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: 90,
+      useNativeDriver: true,
+    }).start();
+  }, [opacity]);
+
+  const handleDismiss = () => {
+    Animated.timing(opacity, {
+      toValue: 0,
+      duration: 40,
+      useNativeDriver: true,
+    }).start(() => {
+      LayoutAnimation.configureNext({
+        duration: 100,
+        update: { type: "easeInEaseOut" },
+        delete: { type: "easeInEaseOut", property: "opacity" },
+      });
+      onDismiss();
+    });
+  };
+
+  return (
+    <Animated.View style={[styles.trackLimitBanner, { opacity }]}>
+      <View style={styles.trackLimitBannerRow}>
+        <View style={styles.trackLimitBannerLeft}>
+          <View style={styles.trackLimitTagRow}>
+            <Text style={styles.trackLimitTag}>TOO LONG</Text>
+            <Text style={styles.trackLimitDuration}>
+              {formatDurationMs(durationMs)}
+            </Text>
+          </View>
+          <Text style={styles.trackLimitHint}>
+            max {formatDurationMs(MAX_TRACK_DURATION_MS)} · try a shorter track
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={handleDismiss}
+          hitSlop={12}
+          style={styles.trackLimitDismiss}
+        >
+          <Text style={styles.trackLimitDismissGlyph}>×</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
 function SubmissionPhase({
   round,
   userId,
@@ -520,6 +590,7 @@ function SubmissionPhase({
   const updateSearchInput = (slotIndex: number, searchInput: string) => {
     setSearchState(slotIndex, {
       searchInput,
+      trackLimitError: null,
       ...(searchInput.trim()
         ? {}
         : { searchResults: [], isSearching: false }),
@@ -527,6 +598,18 @@ function SubmissionPhase({
   };
 
   const selectTrack = (slotIndex: number, track: PickedTrack) => {
+    if (track.source === "spotify" && track.data.duration_ms > MAX_TRACK_DURATION_MS) {
+      LayoutAnimation.configureNext({
+        duration: 110,
+        create: { type: "easeInEaseOut", property: "opacity" },
+        update: { type: "easeInEaseOut" },
+      });
+      setSearchState(slotIndex, {
+        trackLimitError: { durationMs: track.data.duration_ms },
+      });
+      return;
+    }
+
     const incomingId = pickedId(track);
     const duplicateSlot = drafts.findIndex(
       (draft, i) =>
@@ -580,6 +663,7 @@ function SubmissionPhase({
       searchInput: "",
       searchResults: [],
       isSearching: false,
+      trackLimitError: null,
     });
   };
 
@@ -772,6 +856,13 @@ function SubmissionPhase({
                   />
                 </View>
               </ChromeBorder>
+
+              {draft.trackLimitError && (
+                <TrackLimitBanner
+                  durationMs={draft.trackLimitError.durationMs}
+                  onDismiss={() => setSearchState(index, { trackLimitError: null })}
+                />
+              )}
 
               {draft.isSearching && (
                 <ActivityIndicator
@@ -3520,6 +3611,55 @@ const styles = StyleSheet.create({
     fontFamily: THEME.fonts.sansMedium,
     fontSize: 12,
     color: THEME.muted,
+  },
+
+  // ─── Track duration limit rejection banner ────────────────────────────────
+  trackLimitBanner: {
+    backgroundColor: THEME.ink,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#C4FF3D",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  trackLimitBannerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  trackLimitBannerLeft: {
+    flex: 1,
+    gap: 4,
+  },
+  trackLimitTagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  trackLimitTag: {
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 9,
+    letterSpacing: 1.8,
+    color: "#C4FF3D",
+  },
+  trackLimitDuration: {
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 12,
+    color: "#FFD9EC",
+  },
+  trackLimitHint: {
+    fontFamily: THEME.fonts.sansMedium,
+    fontSize: 11,
+    color: "rgba(255,217,236,0.55)",
+  },
+  trackLimitDismiss: {
+    paddingLeft: 12,
+  },
+  trackLimitDismissGlyph: {
+    fontFamily: THEME.fonts.sansBold,
+    fontSize: 18,
+    color: "rgba(255,217,236,0.5)",
+    lineHeight: 20,
   },
 
   // ─── Voting hero overlay (title + meta + buttons under the faded image) ──
