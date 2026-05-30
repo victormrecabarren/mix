@@ -16,6 +16,10 @@ export const queryKeys = {
   roundVoters: (roundId: string) => ["round", roundId, "voters"] as const,
   submissionCounts: (roundIds: string[]) =>
     ["submissionCounts", ...roundIds.slice().sort()] as const,
+  // Resolves a submission back to its round (a submission's round never
+  // changes, so this is cached indefinitely).
+  submissionRound: (submissionId: string) =>
+    ["submission", submissionId, "round"] as const,
 
   // Season
   season: (seasonId: string) => ["season", seasonId] as const,

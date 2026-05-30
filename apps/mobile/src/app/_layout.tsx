@@ -22,6 +22,7 @@ import {
 } from "@expo-google-fonts/jetbrains-mono";
 import { SessionProvider, useSession } from "@/context/SessionContext";
 import { LeagueProvider } from "@/context/LeagueContext";
+import { VotingDraftProvider } from "@/context/VotingDraftContext";
 import {
   SpotifyPlayerProvider,
   useSpotifyPlayer,
@@ -104,6 +105,7 @@ export default function RootLayout() {
           <SoundCloudPlayerProvider>
             <PlaybackProvider>
               <LeagueProvider>
+                <VotingDraftProvider>
                 <AuthGate>
                   <Stack
                     screenOptions={{ headerShown: false, animation: "fade" }}
@@ -116,6 +118,7 @@ export default function RootLayout() {
                     <Stack.Screen name="ui-preview" />
                   </Stack>
                 </AuthGate>
+                </VotingDraftProvider>
               </LeagueProvider>
             </PlaybackProvider>
           </SoundCloudPlayerProvider>
