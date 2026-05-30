@@ -79,6 +79,7 @@ import { useTabBarBottomInset } from "@/ui/hooks/useTabBarBottomInset";
 import { derivePhase, formatPhaseCountdown } from "@/lib/utils/phase";
 import { roundCoverKey } from "@/lib/utils/coverKey";
 import { usePlayback, type PlaylistTrack } from "@/playback/PlaybackContext";
+import { useSoundCloudDurationProbe } from "@/playback/useSoundCloudDurationProbe";
 import { normalizeSpotifyTrackUri } from "@/lib/spotifyTrackUri";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -167,6 +168,7 @@ type DraftSubmission = {
   searchResults: PickedTrack[];
   isSearching: boolean;
   isEditingTrack: boolean;
+  isCheckingLength: boolean;
   trackLimitError: { durationMs: number } | null;
 };
 
@@ -239,6 +241,7 @@ function createDraftSubmission(
     // placeholders. The first empty slot auto-expands so the editor is ready
     // without an extra tap.
     isEditingTrack: existing ? false : autoExpand,
+    isCheckingLength: false,
     trackLimitError: null,
   };
 }
@@ -461,6 +464,7 @@ function SubmissionPhase({
   const [drafts, setDrafts] = useState<DraftSubmission[]>([]);
   const searchRequestIds = useRef<Record<number, number>>({});
   const submitMutation = useSubmitRoundEntries();
+  const { probeDuration, probeView } = useSoundCloudDurationProbe();
   const submitting = submitMutation.isPending;
 
   const baselineDrafts = useMemo(() => {
@@ -597,19 +601,18 @@ function SubmissionPhase({
     });
   };
 
-  const selectTrack = (slotIndex: number, track: PickedTrack) => {
-    if (track.source === "spotify" && track.data.duration_ms > MAX_TRACK_DURATION_MS) {
-      LayoutAnimation.configureNext({
-        duration: 110,
-        create: { type: "easeInEaseOut", property: "opacity" },
-        update: { type: "easeInEaseOut" },
-      });
-      setSearchState(slotIndex, {
-        trackLimitError: { durationMs: track.data.duration_ms },
-      });
-      return;
-    }
+  const rejectTooLong = (slotIndex: number, durationMs: number) => {
+    LayoutAnimation.configureNext({
+      duration: 110,
+      create: { type: "easeInEaseOut", property: "opacity" },
+      update: { type: "easeInEaseOut" },
+    });
+    setSearchState(slotIndex, { trackLimitError: { durationMs } });
+  };
 
+  // Commit the track, close this editor, and progressively open the
+  // immediately-next empty slot as the new editor.
+  const commitTrack = (slotIndex: number, track: PickedTrack) => {
     const incomingId = pickedId(track);
     const duplicateSlot = drafts.findIndex(
       (draft, i) =>
@@ -625,8 +628,6 @@ function SubmissionPhase({
       return;
     }
 
-    // Commit the track, close this editor, and progressively open the
-    // immediately-next empty slot as the new editor.
     setDrafts((prev) => {
       const next = prev.map((draft, i) =>
         i === slotIndex
@@ -650,6 +651,31 @@ function SubmissionPhase({
       }
       return next;
     });
+  };
+
+  const selectTrack = async (slotIndex: number, track: PickedTrack) => {
+    // Spotify ships duration in the search payload, so the check is instant.
+    if (track.source === "spotify") {
+      if (track.data.duration_ms > MAX_TRACK_DURATION_MS) {
+        rejectTooLong(slotIndex, track.data.duration_ms);
+        return;
+      }
+      commitTrack(slotIndex, track);
+      return;
+    }
+
+    // SoundCloud has no duration in its metadata — probe it via a hidden
+    // widget. Guard against double-taps while a probe is already running.
+    if (drafts[slotIndex]?.isCheckingLength) return;
+    setSearchState(slotIndex, { isCheckingLength: true });
+    const durationMs = await probeDuration(track.data.url);
+    setSearchState(slotIndex, { isCheckingLength: false });
+    // Fail open: a null probe (timeout/error) shouldn't block a submission.
+    if (durationMs != null && durationMs > MAX_TRACK_DURATION_MS) {
+      rejectTooLong(slotIndex, durationMs);
+      return;
+    }
+    commitTrack(slotIndex, track);
   };
 
   // EDIT button on a filled slot reuses this: clears the track AND flips
@@ -857,6 +883,15 @@ function SubmissionPhase({
                 </View>
               </ChromeBorder>
 
+              {draft.isCheckingLength && (
+                <View style={styles.checkingLengthRow}>
+                  <ActivityIndicator color={THEME.muted} size="small" />
+                  <Text style={styles.checkingLengthText}>
+                    Checking length…
+                  </Text>
+                </View>
+              )}
+
               {draft.trackLimitError && (
                 <TrackLimitBanner
                   durationMs={draft.trackLimitError.durationMs}
@@ -939,6 +974,9 @@ function SubmissionPhase({
         disabled={!canSubmit}
         loading={submitting}
       />
+
+      {/* Hidden ephemeral WebView that reads a SoundCloud track's duration. */}
+      {probeView}
     </View>
   );
 }
@@ -3660,6 +3698,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: "rgba(255,217,236,0.5)",
     lineHeight: 20,
+  },
+  // Shown while an ephemeral widget probes a SoundCloud track's duration.
+  checkingLengthRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+  },
+  checkingLengthText: {
+    fontFamily: THEME.fonts.sansMedium,
+    fontSize: 12,
+    color: THEME.muted,
   },
 
   // ─── Voting hero overlay (title + meta + buttons under the faded image) ──
