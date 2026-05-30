@@ -132,3 +132,20 @@ export async function getSubmissionCountsForRounds(
   }
   return counts;
 }
+
+// Resolve a submission's owning round id. Used by surfaces that only hold a
+// submission id (e.g. the Now Playing modal, where a PlaylistTrack.id IS a
+// submission id) and need to look up the round's phase / results / voters.
+// Returns null when the id isn't a submission (e.g. a non-round playback
+// source), so callers can fall back to a plain player with no round panel.
+export async function getSubmissionRoundId(
+  submissionId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("submissions")
+    .select("round_id")
+    .eq("id", submissionId)
+    .maybeSingle();
+  if (error) throw postgresToMixError(error);
+  return (data as { round_id: string } | null)?.round_id ?? null;
+}

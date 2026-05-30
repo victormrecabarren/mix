@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { postgresToMixError, UnknownMixError } from "./errors";
+import { clearVoteDraft } from "./voteDrafts";
 
 // The voter's view of a submission. Intentionally narrower than the full row —
 // results phase reads more columns via its own service when we get there.
@@ -97,5 +98,14 @@ export async function submitVotes(args: SubmitVotesArgs): Promise<void> {
         { cause: commentError },
       );
     }
+  }
+
+  // The real ballot is in now — drop the persisted draft so it can't resurface.
+  // Best-effort: a lingering draft is ignored once the user has voted, so a
+  // failure here isn't worth surfacing to the caller.
+  try {
+    await clearVoteDraft(args.roundId, args.userId);
+  } catch {
+    // ignore — draft cleanup is non-critical
   }
 }

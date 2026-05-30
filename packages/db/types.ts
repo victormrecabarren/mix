@@ -725,6 +725,7 @@ export type Database = {
           id: string
           playlist_position: number | null
           round_id: string
+          soundcloud_track_url: string | null
           spotify_track_id: string | null
           track_album_name: string | null
           track_artist: string
@@ -734,6 +735,7 @@ export type Database = {
           track_isrc: string
           track_popularity: number | null
           track_release_year: number | null
+          track_source: string
           track_title: string
           user_id: string
         }
@@ -744,6 +746,7 @@ export type Database = {
           id?: string
           playlist_position?: number | null
           round_id: string
+          soundcloud_track_url?: string | null
           spotify_track_id?: string | null
           track_album_name?: string | null
           track_artist: string
@@ -753,6 +756,7 @@ export type Database = {
           track_isrc: string
           track_popularity?: number | null
           track_release_year?: number | null
+          track_source?: string
           track_title: string
           user_id: string
         }
@@ -763,6 +767,7 @@ export type Database = {
           id?: string
           playlist_position?: number | null
           round_id?: string
+          soundcloud_track_url?: string | null
           spotify_track_id?: string | null
           track_album_name?: string | null
           track_artist?: string
@@ -772,6 +777,7 @@ export type Database = {
           track_isrc?: string
           track_popularity?: number | null
           track_release_year?: number | null
+          track_source?: string
           track_title?: string
           user_id?: string
         }
@@ -818,6 +824,45 @@ export type Database = {
           spotify_id?: string | null
         }
         Relationships: []
+      }
+      vote_drafts: {
+        Row: {
+          allocation: Json
+          comments: Json
+          round_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          allocation?: Json
+          comments?: Json
+          round_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          allocation?: Json
+          comments?: Json
+          round_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vote_drafts_round_id_fkey"
+            columns: ["round_id"]
+            isOneToOne: false
+            referencedRelation: "rounds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vote_drafts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       votes: {
         Row: {

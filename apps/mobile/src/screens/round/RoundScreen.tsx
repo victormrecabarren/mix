@@ -47,6 +47,7 @@ import { ChromeButton } from "@/ui/ChromeButton";
 import { HaloText } from "@/ui/HaloText";
 import { FittedChromeTitle } from "@/ui/FittedChromeTitle";
 import { useSession } from "@/context/SessionContext";
+import { useVotingDraftStore } from "@/context/VotingDraftContext";
 import { useRoundSubmissions } from "@/queries/useRoundSubmissions";
 import { useMyVotes } from "@/queries/useMyVotes";
 import { useSubmitVotes } from "@/queries/useSubmitVotes";
@@ -77,6 +78,7 @@ import { PageHeader } from "@/ui/PageHeader";
 import { HeroBanner } from "@/ui/cards/HeroBanner";
 import { TrackList, type TrackListItem } from "@/ui/sections/TrackList";
 import { useTabBarBottomInset } from "@/ui/hooks/useTabBarBottomInset";
+import { PODIUM_STOPS } from "@/ui/metalStops";
 import { derivePhase, formatPhaseCountdown } from "@/lib/utils/phase";
 import { roundCoverKey } from "@/lib/utils/coverKey";
 import { usePlayback, type PlaylistTrack } from "@/playback/PlaybackContext";
@@ -1102,24 +1104,19 @@ function VotingScreenContent({
   const pointsTotal = round.seasons?.default_points_per_round ?? 10;
   const maxPerTrack = round.seasons?.default_max_points_per_track ?? 5;
 
-  // Allocation seeds from myVotes on first render — but useMyVotes loads
-  // async, so the initial value is usually `{}`. Sync whenever myVotes
-  // changes (e.g. data lands after mount, or refetch on focus brings new
-  // server state). The "useState initializer runs once" rule was masking
-  // the loaded data and making the post-submit view show 0 pts everywhere.
-  const [allocation, setAllocation] = useState<Record<string, number>>(
-    () => myVotes,
-  );
-  const myVotesKey = JSON.stringify(myVotes);
-  useEffect(() => {
-    setAllocation(myVotes);
-    // myVotesKey gives us a stable signal that the contents (not just the
-    // object identity) actually changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myVotesKey]);
-  const [commentInputs, setCommentInputs] = useState<Record<string, string>>(
-    {},
-  );
+  // Allocation + comments live in the shared, server-persisted draft store
+  // (VotingDraftContext): edits autosave so progress survives an app kill, and
+  // the Now Playing modal edits the very same draft. The store is local-
+  // authoritative — it hydrates from the server once, then never gets clobbered
+  // by a refetch. The committed/locked view reads myVotes directly (below).
+  const {
+    allocation,
+    comments: commentInputs,
+    setAllocation,
+    setComments: setCommentInputs,
+    hydrated: draftHydrated,
+    cancelSave: cancelDraftSave,
+  } = useVotingDraftStore(round.id, userId);
   // Per-submission state for the comment draft.
   //   savedCommentIds — slot has a stowed comment (icon goes solid). Stays
   //     set while the user is editing so the indicator doesn't flicker.
@@ -1147,7 +1144,10 @@ function VotingScreenContent({
   const remaining = pointsTotal - used;
   const alreadyVoted = Object.keys(myVotes).length > 0;
   const showSubmittedView = alreadyVoted || justSubmitted;
-  const canEdit = didSubmit && !isSpectator && !showSubmittedView;
+  // Wait for the draft to hydrate before enabling edits, so we never start
+  // adjusting on top of an empty allocation before the saved draft loads.
+  const canEdit =
+    didSubmit && !isSpectator && !showSubmittedView && draftHydrated;
 
   // Build the orderable playlist (skip own track from playable queue is OK —
   // user can still hear it via the round's own playback context).
@@ -1224,6 +1224,10 @@ function VotingScreenContent({
     const comments: VoteCommentInput[] = submissions
       .filter((s) => (commentInputs[s.id] ?? "").trim().length > 0)
       .map((s) => ({ submissionId: s.id, body: commentInputs[s.id] }));
+
+    // Kill any pending autosave so it can't re-create the server draft that
+    // submitVotes deletes once the real ballot lands.
+    cancelDraftSave();
 
     try {
       await submitMutation.mutateAsync({
@@ -1361,7 +1365,11 @@ function VotingScreenContent({
 
         {submissions.map((sub, idx) => {
           const trackNum = String(idx + 1).padStart(2, "0");
-          const pts = allocation[sub.id] ?? 0;
+          // While editing, show the live draft; in the locked/submitted view
+          // show committed votes (falling back to the draft until myVotes
+          // refetches, so the count never blinks to 0 right after submitting).
+          const draftPts = allocation[sub.id] ?? 0;
+          const pts = showSubmittedView ? myVotes[sub.id] ?? draftPts : draftPts;
           const isOwn = sub.user_id === userId;
           const plusDisabled =
             submitting ||
@@ -2198,44 +2206,6 @@ type VoterRow = {
   voter_name: string;
   points: number;
   comment: string | null;
-};
-
-// Metal palettes — same shape as ChromeBorder's default; passed in to draw
-// gold and bronze variants with the same polished-metal feel. Stops ramp
-// light → mid → light → dark → light → mid so the gradient reads as
-// hammered metal at any size.
-const CHROME_STOPS = [
-  "#f5f5f5",
-  "#d0d0d0",
-  "#ffffff",
-  "#b0b0b0",
-  "#e8e8e8",
-  "#c8c8c8",
-] as const;
-// Lighter champagne-gold variant — every stop pulled up a step so the dark
-// banding doesn't drag the average tone into a muddy mustard.
-const GOLD_STOPS = [
-  "#FFF0B0",
-  "#E5BE54",
-  "#FFF7CC",
-  "#D6A742",
-  "#F5D27E",
-  "#E5BE54",
-] as const;
-// Lighter rose-bronze / copper variant. Same logic — the deep brown stops
-// were eating the highlight; replaced with warmer mid-coppers.
-const BRONZE_STOPS = [
-  "#F2CBA1",
-  "#C58A60",
-  "#F9DCBC",
-  "#B07847",
-  "#DBA478",
-  "#C58A60",
-] as const;
-const PODIUM_STOPS: Record<1 | 2 | 3, readonly string[]> = {
-  1: GOLD_STOPS,
-  2: CHROME_STOPS,
-  3: BRONZE_STOPS,
 };
 
 // Per-rank sizing tuned to match Claude Design's podium reference: 1st's art
