@@ -1,11 +1,13 @@
 import { Tabs } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MixTabBar } from '@/ui/nav/MixTabBar';
 import { NowPlayingPillConnected } from '@/components/NowPlayingPillConnected';
 import { THEME } from '@/ui/theme/tokens';
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <View style={styles.root}>
       <Tabs
@@ -15,16 +17,18 @@ export default function TabsLayout() {
           sceneStyle: { backgroundColor: THEME.bg },
         }}
         tabBar={(props) => (
-          <SafeAreaView
-            style={styles.bottomChrome}
-            edges={['bottom']}
+          <View
+            style={[
+              styles.bottomChrome,
+              { paddingBottom: Math.max(insets.bottom - 14, 4) },
+            ]}
             pointerEvents="box-none"
           >
             <View style={styles.chromeStack} pointerEvents="box-none">
               <NowPlayingPillConnected />
               <MixTabBar {...props} />
             </View>
-          </SafeAreaView>
+          </View>
         )}
       >
         <Tabs.Screen name="(home)" options={{ title: 'Home' }} />
@@ -42,7 +46,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingBottom: 6,
   },
-  chromeStack: { gap: 8 },
+  chromeStack: { gap: 6 },
 });

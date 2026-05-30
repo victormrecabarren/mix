@@ -61,8 +61,8 @@ export function NowPlayingPill({
   return (
     <View style={[styles.wrap, style]}>
       <GlassSurface
-        glassEffectStyle="clear"
-        fallbackBlurIntensity={45}
+        glassEffectStyle="regular"
+        interactive
         style={styles.pill}
       >
         <Pressable
@@ -152,18 +152,18 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.35)",
+    borderColor: "rgba(255,255,255,0.25)",
   },
   pillInner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   art: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     borderRadius: 5,
   },
   meta: { flex: 1, minWidth: 0 },
