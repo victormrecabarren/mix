@@ -6,6 +6,7 @@ import type { ViewProps } from "react-native";
 // error, so swap to an if-ios wrapper if you start supporting Android).
 const NativeZoom: {
   armZoomTransition: (sourceId: string) => void;
+  armZoomTransitionWithAlignment: (sourceId: string, alignment: string) => void;
 } = requireNativeModule("NativeZoom");
 
 // Arm the NEXT UINavigationController.pushViewController call to use iOS 18's
@@ -14,6 +15,10 @@ const NativeZoom: {
 // back to the standard push animation.
 export function armZoomTransition(sourceId: string): void {
   NativeZoom.armZoomTransition(sourceId);
+}
+
+export function armZoomTransitionToNowPlayingArt(sourceId: string): void {
+  NativeZoom.armZoomTransitionWithAlignment(sourceId, "nowPlayingArt");
 }
 
 export type ZoomSourceProps = ViewProps & {

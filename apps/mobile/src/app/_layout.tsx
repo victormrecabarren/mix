@@ -112,6 +112,13 @@ export default function RootLayout() {
                   >
                     <Stack.Screen name="(auth)/index" />
                     <Stack.Screen name="(tabs)" />
+                    <Stack.Screen
+                      name="now-playing"
+                      options={{
+                        animation: "default",
+                        gestureEnabled: true,
+                      }}
+                    />
                     <Stack.Screen name="auth/callback" />
                     <Stack.Screen name="join/index" />
                     {/* TEMP: preview routes for UI experiments. Delete when done. */}

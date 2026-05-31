@@ -19,6 +19,7 @@ import {
   Image,
   LayoutAnimation,
   PanResponder,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -956,9 +957,9 @@ const voteStyles = StyleSheet.create({
   },
 });
 
-// ─── Modal ────────────────────────────────────────────────────────────────────
+// ─── Now Playing surface ──────────────────────────────────────────────────────
 
-export function NowPlayingModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+export function NowPlayingContent({ onClose }: { onClose?: () => void }) {
   const insets = useSafeAreaInsets();
   const {
     currentIndex, playlist,
@@ -1018,6 +1019,86 @@ export function NowPlayingModal({ visible, onClose }: { visible: boolean; onClos
   }, [phase, currentSubId, results, voters]);
 
   return (
+    <Wallpaper halftone={false}>
+      {/* Grab handle — signals dismiss. On the routed screen, tapping it pops
+          the native zoom transition back into the pill. */}
+      <Pressable
+        style={[modalStyles.topBar, { paddingTop: insets.top + 10 }]}
+        onPress={onClose}
+        disabled={!onClose}
+        hitSlop={10}
+      >
+        <View style={modalStyles.handle} />
+      </Pressable>
+
+      <View style={[modalStyles.content, { paddingBottom: insets.bottom + 18 }]}>
+        <View style={modalStyles.artBlock}>
+          <AlbumArtSwiper />
+        </View>
+
+        {/* Everything under the art. The title is pinned just below the
+            (large) art footprint so it never shifts when the art scales;
+            the controls + scrubber float vertically centered in the space
+            between the title and the bottom panel. */}
+        <View style={modalStyles.belowArt}>
+          <View style={modalStyles.titleRow}>
+            <View style={modalStyles.titleCol}>
+              <Text style={modalStyles.title} numberOfLines={1}>
+                {title || (hasTrack ? 'Loading…' : 'Nothing playing')}
+              </Text>
+              {artist ? (
+                <Text style={modalStyles.artist} numberOfLines={1}>
+                  {artist}
+                </Text>
+              ) : null}
+            </View>
+            <TouchableOpacity
+              style={modalStyles.moreBtn}
+              hitSlop={8}
+              // TODO: overflow menu (add to playlist, share, view round…).
+              onPress={() => {}}
+            >
+              <MoreHorizontal size={20} color={THEME.ink} strokeWidth={2.5} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={modalStyles.controlsRegion}>
+            {/* Transport sits above the scrubber per the requested layout. */}
+            <Transport
+              isPlaying={isPlaying}
+              onPlayPause={isPlaying ? pause : resume}
+              onPrevious={previous}
+              onNext={next}
+              hasTrack={hasTrack}
+              canPrevious={canPrevious}
+              hasNext={hasNext}
+            />
+
+            <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
+          </View>
+
+          {completed ? (
+            <CompletedRoundPanel
+              rank={completed.rank}
+              points={completed.points}
+              isVoid={completed.isVoid}
+              comments={completed.comments}
+            />
+          ) : null}
+
+          {showVoting ? (
+            <VotingPanel draft={draft} subId={currentSubId!} />
+          ) : null}
+        </View>
+      </View>
+    </Wallpaper>
+  );
+}
+
+// ─── Modal ────────────────────────────────────────────────────────────────────
+
+export function NowPlayingModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  return (
     <SwipeSheet
       visible={visible}
       onRequestClose={onClose}
@@ -1032,75 +1113,7 @@ export function NowPlayingModal({ visible, onClose }: { visible: boolean; onClos
       // render our own grab handle inside the Wallpaper below.
       showHandle={false}
     >
-      {() => (
-        <Wallpaper halftone={false}>
-          {/* Grab handle — signals swipe-to-dismiss. */}
-          <View style={[modalStyles.topBar, { paddingTop: insets.top + 10 }]}>
-            <View style={modalStyles.handle} />
-          </View>
-
-          <View style={[modalStyles.content, { paddingBottom: insets.bottom + 18 }]}>
-            <View style={modalStyles.artBlock}>
-              <AlbumArtSwiper />
-            </View>
-
-            {/* Everything under the art. The title is pinned just below the
-                (large) art footprint so it never shifts when the art scales;
-                the controls + scrubber float vertically centered in the space
-                between the title and the bottom panel. */}
-            <View style={modalStyles.belowArt}>
-              <View style={modalStyles.titleRow}>
-                <View style={modalStyles.titleCol}>
-                  <Text style={modalStyles.title} numberOfLines={1}>
-                    {title || (hasTrack ? 'Loading…' : 'Nothing playing')}
-                  </Text>
-                  {artist ? (
-                    <Text style={modalStyles.artist} numberOfLines={1}>
-                      {artist}
-                    </Text>
-                  ) : null}
-                </View>
-                <TouchableOpacity
-                  style={modalStyles.moreBtn}
-                  hitSlop={8}
-                  // TODO: overflow menu (add to playlist, share, view round…).
-                  onPress={() => {}}
-                >
-                  <MoreHorizontal size={20} color={THEME.ink} strokeWidth={2.5} />
-                </TouchableOpacity>
-              </View>
-
-              <View style={modalStyles.controlsRegion}>
-                {/* Transport sits above the scrubber per the requested layout. */}
-                <Transport
-                  isPlaying={isPlaying}
-                  onPlayPause={isPlaying ? pause : resume}
-                  onPrevious={previous}
-                  onNext={next}
-                  hasTrack={hasTrack}
-                  canPrevious={canPrevious}
-                  hasNext={hasNext}
-                />
-
-                <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
-              </View>
-
-              {completed ? (
-                <CompletedRoundPanel
-                  rank={completed.rank}
-                  points={completed.points}
-                  isVoid={completed.isVoid}
-                  comments={completed.comments}
-                />
-              ) : null}
-
-              {showVoting ? (
-                <VotingPanel draft={draft} subId={currentSubId!} />
-              ) : null}
-            </View>
-          </View>
-        </Wallpaper>
-      )}
+      <NowPlayingContent onClose={onClose} />
     </SwipeSheet>
   );
 }
