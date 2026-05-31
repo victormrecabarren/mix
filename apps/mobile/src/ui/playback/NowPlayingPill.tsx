@@ -8,6 +8,7 @@
 
 import { Image } from "expo-image";
 import { FastForward, Pause, Play, Rewind } from "lucide-react-native";
+import { ZoomSource } from "native-zoom";
 import {
   Pressable,
   StyleSheet,
@@ -18,6 +19,7 @@ import {
 } from "react-native";
 import { CoverArt } from "@/ui/CoverArt";
 import { GlassSurface } from "@/ui/glass/GlassSurface";
+import { FLOATING_CHROME_HORIZONTAL_INSET } from "@/ui/nav/floatingChromeMetrics";
 import { THEME } from "@/ui/theme/tokens";
 
 export interface NowPlayingPillProps {
@@ -38,6 +40,7 @@ export interface NowPlayingPillProps {
   /** When omitted, the previous button is hidden entirely (first track). */
   onPrevious?: () => void;
   onPress?: () => void;
+  zoomSourceId?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -52,17 +55,28 @@ export function NowPlayingPill({
   onNext,
   onPrevious,
   onPress,
+  zoomSourceId,
   style,
 }: NowPlayingPillProps) {
   // Hue prop accepts strings (legacy from preview) and numbers — normalize.
   const numericHue =
     typeof hue === "number" ? hue : hue != null ? Number(hue) : 200;
 
+  const art = artworkUrl ? (
+    <Image source={{ uri: artworkUrl }} style={styles.artFill} />
+  ) : (
+    <CoverArt
+      hue={Number.isFinite(numericHue) ? numericHue : 200}
+      dual={dual}
+      style={styles.artFill}
+    />
+  );
+
   return (
     <View style={[styles.wrap, style]}>
       <GlassSurface
-        glassEffectStyle="clear"
-        fallbackBlurIntensity={45}
+        glassEffectStyle="regular"
+        interactive
         style={styles.pill}
       >
         <Pressable
@@ -70,14 +84,12 @@ export function NowPlayingPill({
           onPress={onPress}
           disabled={!onPress}
         >
-          {artworkUrl ? (
-            <Image source={{ uri: artworkUrl }} style={styles.art} />
+          {zoomSourceId ? (
+            <ZoomSource zoomSourceId={zoomSourceId} style={styles.art}>
+              {art}
+            </ZoomSource>
           ) : (
-            <CoverArt
-              hue={Number.isFinite(numericHue) ? numericHue : 200}
-              dual={dual}
-              style={styles.art}
-            />
+            <View style={styles.art}>{art}</View>
           )}
           <View style={styles.meta}>
             <Text style={styles.title} numberOfLines={1}>
@@ -97,7 +109,7 @@ export function NowPlayingPill({
                 onPress={onPrevious}
               >
                 <Rewind
-                  size={22}
+                  size={20}
                   color={THEME.ink}
                   fill={THEME.ink}
                   strokeWidth={0}
@@ -107,14 +119,14 @@ export function NowPlayingPill({
             <Pressable style={styles.iconBtn} hitSlop={8} onPress={onPlayPause}>
               {isPlaying ? (
                 <Pause
-                  size={22}
+                  size={20}
                   color={THEME.ink}
                   fill={THEME.ink}
                   strokeWidth={0}
                 />
               ) : (
                 <Play
-                  size={22}
+                  size={20}
                   color={THEME.ink}
                   fill={THEME.ink}
                   strokeWidth={0}
@@ -124,7 +136,7 @@ export function NowPlayingPill({
             {onNext ? (
               <Pressable style={styles.iconBtn} hitSlop={8} onPress={onNext}>
                 <FastForward
-                  size={22}
+                  size={20}
                   color={THEME.ink}
                   fill={THEME.ink}
                   strokeWidth={0}
@@ -140,32 +152,33 @@ export function NowPlayingPill({
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingHorizontal: 10,
-    // Lift the pill off the wallpaper. iOS shadow + Android elevation.
+    paddingHorizontal: FLOATING_CHROME_HORIZONTAL_INSET,
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   pill: {
-    borderRadius: 30,
+    borderRadius: 24,
     overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.35)",
+    borderColor: "rgba(255,255,255,0.15)",
   },
   pillInner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   art: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     borderRadius: 5,
+    overflow: "hidden",
   },
+  artFill: { width: "100%", height: "100%" },
   meta: { flex: 1, minWidth: 0 },
   title: { ...THEME.text.nowPlayingTitle },
   artist: { ...THEME.text.nowPlayingArtist, marginTop: 1 },

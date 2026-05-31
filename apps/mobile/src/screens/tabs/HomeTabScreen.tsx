@@ -11,6 +11,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -20,8 +21,9 @@ import {
   View,
 } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { armZoomTransition } from 'native-zoom';
 
 import { useSession } from '@/context/SessionContext';
@@ -141,6 +143,11 @@ function HomeTabContent({
   armAndPush: (armId: string | null, navigate: () => void) => void;
 }) {
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const headerOpacity = useRef(new Animated.Value(1)).current;
+  const headerVisible = useRef(true);
+  const [headerHeight, setHeaderHeight] = useState(90);
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -338,11 +345,29 @@ function HomeTabContent({
 
   return (
     <Wallpaper>
-      <SafeAreaView style={{ flex: 1 }} edges={['top']}>
-        <ScrollView
+        <Animated.ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: bottomInset }}
+          contentContainerStyle={{ paddingBottom: bottomInset, paddingTop: insets.top + headerHeight }}
           showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+            {
+              useNativeDriver: true,
+              listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+                const y = event.nativeEvent.contentOffset.y;
+                const shouldShow = y < 15;
+                if (shouldShow !== headerVisible.current) {
+                  headerVisible.current = shouldShow;
+                  Animated.timing(headerOpacity, {
+                    toValue: shouldShow ? 1 : 0,
+                    duration: 150,
+                    useNativeDriver: true,
+                  }).start();
+                }
+              },
+            },
+          )}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -351,12 +376,6 @@ function HomeTabContent({
             />
           }
         >
-          <PageHeader
-            leagueTag={league?.name}
-            title="Home"
-            trailing={commissionerTrailing}
-          />
-
           {hero ? (
             <>
               <HeroRoundCard
@@ -455,8 +474,36 @@ function HomeTabContent({
           {/* {seasonsForList.length > 0 ? (
             <SeasonsList seasons={seasonsForList} onPress={goToSeason} />
           ) : null} */}
-        </ScrollView>
-      </SafeAreaView>
+        </Animated.ScrollView>
+        <Animated.View
+          style={[styles.fixedHeader, { top: insets.top, opacity: headerOpacity }]}
+          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+          pointerEvents="box-none"
+        >
+          <PageHeader
+            title="Home"
+            trailing={commissionerTrailing}
+          />
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.statusBarScrim,
+            {
+              height: insets.top + 20,
+              opacity: scrollY.interpolate({
+                inputRange: [0, insets.top],
+                outputRange: [0, 1],
+                extrapolate: 'clamp',
+              }),
+            },
+          ]}
+          pointerEvents="none"
+        >
+          <LinearGradient
+            colors={['#FFFFFF80', '#FFFFFF00']}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
     </Wallpaper>
   );
 }
@@ -488,6 +535,18 @@ function CreateLeagueEmptyState() {
 }
 
 const styles = StyleSheet.create({
+  statusBarScrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
+  fixedHeader: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+  },
+
   // Thin gray vertical line tethering the active hero card to the round
   // title below. Same hairline weight as the section rule for visual
   // continuity.

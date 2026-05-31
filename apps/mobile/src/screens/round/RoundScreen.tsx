@@ -41,7 +41,7 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { Stack, useRouter, useFocusEffect } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Wallpaper } from "@/ui/Wallpaper";
 import { KeyboardScroll } from "@/components/KeyboardScroll";
 import { BouncyPressable } from "@/ui/BouncyPressable";
@@ -70,6 +70,7 @@ import { MixError } from "@/services/errors";
 import type { VoteInput, VoteCommentInput } from "@/services/votes";
 import type { DeadlineExtensionType } from "@/services/deadlineExtensions";
 import type { SubmissionDraft } from "@/services/submissions";
+import { getLeagueHistoricConflicts } from "@/services/submissions";
 import {
   searchSpotifyTracks,
   getSpotifyTrack,
@@ -127,6 +128,7 @@ type Submission = {
   track_title: string;
   track_artist: string;
   track_artwork_url: string | null;
+  track_album_name: string | null;
   track_source: "spotify" | "soundcloud";
   spotify_track_id: string | null;
   soundcloud_track_url: string | null;
@@ -181,6 +183,8 @@ type DraftSubmission = {
   isEditingTrack: boolean;
   isCheckingLength: boolean;
   trackLimitError: { durationMs: number } | null;
+  conflictBlock: string | null;
+  conflictWarning: { messages: string[]; pendingTrack: PickedTrack } | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -257,6 +261,8 @@ function createDraftSubmission(
     isEditingTrack: existing ? false : autoExpand,
     isCheckingLength: false,
     trackLimitError: null,
+    conflictBlock: null,
+    conflictWarning: null,
   };
 }
 
@@ -610,11 +616,15 @@ function TrackRow({
 
 const MAX_TRACK_DURATION_MS = 27 * 60 * 1000;
 
-function TrackLimitBanner({
-  durationMs,
+function HardBlockBanner({
+  label,
+  detail,
+  message,
   onDismiss,
 }: {
-  durationMs: number;
+  label: string;
+  detail?: string;
+  message: string;
   onDismiss: () => void;
 }) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -643,26 +653,115 @@ function TrackLimitBanner({
   };
 
   return (
-    <Animated.View style={[styles.trackLimitBanner, { opacity }]}>
-      <View style={styles.trackLimitBannerRow}>
-        <View style={styles.trackLimitBannerLeft}>
-          <View style={styles.trackLimitTagRow}>
-            <Text style={styles.trackLimitTag}>TOO LONG</Text>
-            <Text style={styles.trackLimitDuration}>
-              {formatDurationMs(durationMs)}
-            </Text>
+    <Animated.View style={[styles.hardBlockBanner, { opacity }]}>
+      <View style={styles.hardBlockBannerRow}>
+        <View style={styles.hardBlockBannerLeft}>
+          <View style={styles.hardBlockTagRow}>
+            <Text style={styles.hardBlockTag}>{label}</Text>
+            {detail ? (
+              <Text style={styles.hardBlockDetail}>{detail}</Text>
+            ) : null}
           </View>
-          <Text style={styles.trackLimitHint}>
-            max {formatDurationMs(MAX_TRACK_DURATION_MS)} · try a shorter track
-          </Text>
+          <Text style={styles.hardBlockMessage}>{message}</Text>
         </View>
         <TouchableOpacity
           onPress={handleDismiss}
           hitSlop={12}
-          style={styles.trackLimitDismiss}
+          style={styles.hardBlockDismiss}
         >
-          <Text style={styles.trackLimitDismissGlyph}>×</Text>
+          <Text style={styles.hardBlockDismissGlyph}>×</Text>
         </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
+function TrackLimitBanner({
+  durationMs,
+  onDismiss,
+}: {
+  durationMs: number;
+  onDismiss: () => void;
+}) {
+  return (
+    <HardBlockBanner
+      label="TOO LONG"
+      detail={formatDurationMs(durationMs)}
+      message={`max ${formatDurationMs(MAX_TRACK_DURATION_MS)} · try a shorter track`}
+      onDismiss={onDismiss}
+    />
+  );
+}
+
+function SoftWarningBanner({
+  messages,
+  onDismiss,
+  onConfirm,
+}: {
+  messages: string[];
+  onDismiss: () => void;
+  onConfirm: () => void;
+}) {
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: 90,
+      useNativeDriver: true,
+    }).start();
+  }, [opacity]);
+
+  const dismiss = () => {
+    Animated.timing(opacity, {
+      toValue: 0,
+      duration: 40,
+      useNativeDriver: true,
+    }).start(() => {
+      LayoutAnimation.configureNext({
+        duration: 100,
+        update: { type: "easeInEaseOut" },
+        delete: { type: "easeInEaseOut", property: "opacity" },
+      });
+      onDismiss();
+    });
+  };
+
+  const confirm = () => {
+    Animated.timing(opacity, {
+      toValue: 0,
+      duration: 40,
+      useNativeDriver: true,
+    }).start(onConfirm);
+  };
+
+  return (
+    <Animated.View style={[styles.softWarningBanner, { opacity }]}>
+      <View style={styles.softWarningContent}>
+        <View style={styles.softWarningCopy}>
+          <Text style={styles.softWarningTag}>HEADS UP</Text>
+          {messages.map((msg, i) => (
+            <Text key={i} style={styles.softWarningMessage}>
+              {msg}
+            </Text>
+          ))}
+        </View>
+      </View>
+      <View style={styles.softWarningActions}>
+        <Pressable
+          onPress={dismiss}
+          hitSlop={6}
+          style={[styles.softWarningButton, styles.softWarningSecondaryButton]}
+        >
+          <Text style={styles.softWarningSecondaryText}>Cancel</Text>
+        </Pressable>
+        <Pressable
+          onPress={confirm}
+          hitSlop={6}
+          style={[styles.softWarningButton, styles.softWarningPrimaryButton]}
+        >
+          <Text style={styles.softWarningPrimaryText}>Pick anyway</Text>
+        </Pressable>
       </View>
     </Animated.View>
   );
@@ -672,11 +771,13 @@ function SubmissionPhase({
   round,
   userId,
   mySubmissions,
+  allSubmissions,
   onSubmitted,
 }: {
   round: Round;
   userId: string;
   mySubmissions: Submission[];
+  allSubmissions: Submission[];
   onSubmitted: () => void;
 }) {
   const submissionsPerUser = round.seasons?.submissions_per_user ?? 1;
@@ -816,7 +917,11 @@ function SubmissionPhase({
     setSearchState(slotIndex, {
       searchInput,
       trackLimitError: null,
-      ...(searchInput.trim() ? {} : { searchResults: [], isSearching: false }),
+      conflictBlock: null,
+      conflictWarning: null,
+      ...(searchInput.trim()
+        ? {}
+        : { searchResults: [], isSearching: false }),
     });
   };
 
@@ -840,10 +945,14 @@ function SubmissionPhase({
         pickedId(draft.track) === incomingId,
     );
     if (duplicateSlot !== -1) {
-      Alert.alert(
-        "Track already selected",
-        `This track is already selected for the other submission.`,
-      );
+      LayoutAnimation.configureNext({
+        duration: 110,
+        create: { type: "easeInEaseOut", property: "opacity" },
+        update: { type: "easeInEaseOut" },
+      });
+      setSearchState(slotIndex, {
+        conflictBlock: "This track is already selected for another slot.",
+      });
       return;
     }
 
@@ -857,6 +966,8 @@ function SubmissionPhase({
               searchResults: [],
               isSearching: false,
               isEditingTrack: false,
+              conflictBlock: null,
+              conflictWarning: null,
             }
           : draft,
       );
@@ -873,28 +984,125 @@ function SubmissionPhase({
   };
 
   const selectTrack = async (slotIndex: number, track: PickedTrack) => {
-    // Spotify ships duration in the search payload, so the check is instant.
+    // Clear any conflict banner from a previous selection attempt in this slot.
+    setSearchState(slotIndex, { conflictBlock: null, conflictWarning: null });
+
+    // Duration check — Spotify has it in the payload; SoundCloud needs probing.
     if (track.source === "spotify") {
       if (track.data.duration_ms > MAX_TRACK_DURATION_MS) {
         rejectTooLong(slotIndex, track.data.duration_ms);
         return;
       }
+    } else {
+      // Guard against double-taps while a probe is already running.
+      if (drafts[slotIndex]?.isCheckingLength) return;
+      setSearchState(slotIndex, { isCheckingLength: true });
+      const durationMs = await probeDuration(track.data.url);
+      setSearchState(slotIndex, { isCheckingLength: false });
+      // Fail open: a null probe (timeout/error) shouldn't block a submission.
+      if (durationMs != null && durationMs > MAX_TRACK_DURATION_MS) {
+        rejectTooLong(slotIndex, durationMs);
+        return;
+      }
+    }
+
+    // Only check against other users' submissions (editing your own slot is fine).
+    const otherSubs = allSubmissions.filter((s) => s.user_id !== userId);
+
+    // AC1: Hard block — exact track already in this round by another user.
+    const roundDuplicate = otherSubs.some((s) => {
+      if (track.source === "spotify") {
+        const isrc = track.data.external_ids?.isrc;
+        return isrc && isrc !== "" && s.track_source === "spotify" && s.track_isrc === isrc;
+      }
+      return s.track_source === "soundcloud" && s.soundcloud_track_url === track.data.url;
+    });
+    if (roundDuplicate) {
+      LayoutAnimation.configureNext({
+        duration: 110,
+        create: { type: "easeInEaseOut", property: "opacity" },
+        update: { type: "easeInEaseOut" },
+      });
+      setSearchState(slotIndex, {
+        conflictBlock: "Someone in this round has already submitted this track.",
+      });
+      return;
+    }
+
+    // AC2–AC4: Collect soft warnings, then surface inline with a "Pick anyway" action.
+    const warnings: string[] = [];
+
+    // AC2a: same artist already in this round.
+    const trackArtist = pickedArtist(track);
+    const hasArtistConflict = otherSubs.some(
+      (s) => s.track_artist.toLowerCase() === trackArtist.toLowerCase(),
+    );
+    if (hasArtistConflict) {
+      warnings.push(`${trackArtist} already has a track in this round.`);
+    }
+
+    // AC2b: same album already in this round (Spotify only). Skip it when
+    // the same-artist warning already covers the likely concern.
+    if (!hasArtistConflict && track.source === "spotify" && track.data.album.name) {
+      const albumName = track.data.album.name;
+      if (otherSubs.some((s) => s.track_album_name?.toLowerCase() === albumName.toLowerCase())) {
+        warnings.push(`Another track from "${albumName}" is already in this round.`);
+      }
+    }
+
+    // AC3 + AC4: historic conflicts — async DB check, fail open.
+    const leagueId = round.seasons?.league_id;
+    if (leagueId) {
+      try {
+        const spotifyIsrc =
+          track.source === "spotify" && track.data.external_ids?.isrc
+            ? track.data.external_ids.isrc
+            : undefined;
+        const soundcloudUrl = track.source === "soundcloud" ? track.data.url : undefined;
+
+        const historic = await getLeagueHistoricConflicts({
+          leagueId,
+          currentRoundId: round.id,
+          userId,
+          spotifyIsrc,
+          soundcloudUrl,
+        });
+
+        // AC4: user has submitted this track before in this league.
+        const myConflicts = historic.filter((c) => c.isMySubmission);
+        if (myConflicts.length > 0) {
+          const places = myConflicts
+            .map((c) => `${c.seasonName}, Round ${c.roundNumber}`)
+            .join(" and ");
+          warnings.push(`You've submitted this track before (${places}).`);
+        }
+
+        // AC3: track already in the league's historic playlist (other submitters).
+        const othersConflicts = historic.filter((c) => !c.isMySubmission);
+        if (othersConflicts.length > 0) {
+          const { seasonName, roundNumber } = othersConflicts[0];
+          warnings.push(
+            `This track is already in the league's playlist (${seasonName}, Round ${roundNumber}).`,
+          );
+        }
+      } catch {
+        // Fail open: don't block track selection if the historic check errors.
+      }
+    }
+
+    if (warnings.length === 0) {
       commitTrack(slotIndex, track);
       return;
     }
 
-    // SoundCloud has no duration in its metadata — probe it via a hidden
-    // widget. Guard against double-taps while a probe is already running.
-    if (drafts[slotIndex]?.isCheckingLength) return;
-    setSearchState(slotIndex, { isCheckingLength: true });
-    const durationMs = await probeDuration(track.data.url);
-    setSearchState(slotIndex, { isCheckingLength: false });
-    // Fail open: a null probe (timeout/error) shouldn't block a submission.
-    if (durationMs != null && durationMs > MAX_TRACK_DURATION_MS) {
-      rejectTooLong(slotIndex, durationMs);
-      return;
-    }
-    commitTrack(slotIndex, track);
+    LayoutAnimation.configureNext({
+      duration: 110,
+      create: { type: "easeInEaseOut", property: "opacity" },
+      update: { type: "easeInEaseOut" },
+    });
+    setSearchState(slotIndex, {
+      conflictWarning: { messages: warnings, pendingTrack: track },
+    });
   };
 
   // EDIT button on a filled slot reuses this: clears the track AND flips
@@ -909,6 +1117,8 @@ function SubmissionPhase({
       searchResults: [],
       isSearching: false,
       trackLimitError: null,
+      conflictBlock: null,
+      conflictWarning: null,
     });
   };
 
@@ -1115,6 +1325,22 @@ function SubmissionPhase({
                   onDismiss={() =>
                     setSearchState(index, { trackLimitError: null })
                   }
+                />
+              )}
+
+              {draft.conflictBlock && (
+                <HardBlockBanner
+                  label="ALREADY IN ROUND"
+                  message={draft.conflictBlock}
+                  onDismiss={() => setSearchState(index, { conflictBlock: null })}
+                />
+              )}
+
+              {draft.conflictWarning && (
+                <SoftWarningBanner
+                  messages={draft.conflictWarning.messages}
+                  onDismiss={() => setSearchState(index, { conflictWarning: null })}
+                  onConfirm={() => commitTrack(index, draft.conflictWarning!.pendingTrack)}
                 />
               )}
 
@@ -2790,6 +3016,7 @@ export function RoundScreen({
   const { supabaseUserId } = useSession();
   const userId = supabaseUserId;
   const bottomInset = useTabBarBottomInset();
+  const { top: topInset } = useSafeAreaInsets();
 
   const {
     data: round,
@@ -3004,17 +3231,20 @@ export function RoundScreen({
           }}
         />
         <Wallpaper>
-          <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-            <KeyboardScroll
-              contentContainerStyle={[
-                styles.submitScroll,
-                { paddingBottom: bottomInset + 36 },
-              ]}
-              // Gap kept between the keyboard and the focused field. Bump this
-              // if a field still feels too close to the keyboard.
-              extraScrollHeight={48}
-              enableOnAndroid
-              refreshControl={
+          <KeyboardScroll
+            style={{ flex: 1 }}
+            contentContainerStyle={[
+              styles.submitScroll,
+              {
+                paddingTop: topInset + 12,
+                paddingBottom: bottomInset + 36,
+              },
+            ]}
+            // Gap kept between the keyboard and the focused field. Bump this
+            // if a field still feels too close to the keyboard.
+            extraScrollHeight={48}
+            enableOnAndroid
+            refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={onRefresh}
@@ -3022,20 +3252,20 @@ export function RoundScreen({
                 />
               }
             >
-              <SubmissionsHero round={round} countdown={countdown} />
-              <DeadlineExtensionCard
-                roundId={round.id}
-                userId={userId}
-                deadlineType="submission"
-              />
-              <SubmissionPhase
-                round={round}
-                userId={userId}
-                mySubmissions={mySubmissions}
-                onSubmitted={() => router.back()}
-              />
-            </KeyboardScroll>
-          </SafeAreaView>
+            <SubmissionsHero round={round} countdown={countdown} />
+            <DeadlineExtensionCard
+              roundId={round.id}
+              userId={userId}
+              deadlineType="submission"
+            />
+            <SubmissionPhase
+              round={round}
+              userId={userId}
+              mySubmissions={mySubmissions}
+              allSubmissions={submissions}
+              onSubmitted={() => router.back()}
+            />
+          </KeyboardScroll>
         </Wallpaper>
       </>
     );
@@ -3045,53 +3275,52 @@ export function RoundScreen({
   if (phase === "results") {
     return (
       <Wallpaper halftone={false}>
-        <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-          <ScrollView
-            ref={scrollViewRef}
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={THEME.ink}
-              />
-            }
-          >
-            {round.seasons?.status === "completed" &&
-              round.round_number === totalRounds && (
-                <TouchableOpacity
-                  style={styles.seasonCompleteBanner}
-                  onPress={() =>
-                    router.push({
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      pathname: "/(tabs)/(home)/season/[id]" as any,
-                      params: { id: round.season_id, initialTab: "standings" },
-                    })
-                  }
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.seasonCompleteEmoji}>🏆</Text>
-                  <View style={styles.seasonCompleteText}>
-                    <Text style={styles.seasonCompleteTitle}>
-                      Season complete!
-                    </Text>
-                    <Text style={styles.seasonCompleteSub}>
-                      See the final standings →
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-
-            <ResultsPhase
-              round={round}
-              submissions={submissions}
-              leagueName={league?.name}
-              totalRounds={totalRounds}
-              onBack={() => router.back()}
+        <ScrollView
+          ref={scrollViewRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            paddingTop: topInset,
+            paddingBottom: bottomInset + 24,
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={THEME.ink}
             />
-          </ScrollView>
-        </SafeAreaView>
+          }
+        >
+          {round.seasons?.status === "completed" &&
+            round.round_number === totalRounds && (
+              <TouchableOpacity
+                style={styles.seasonCompleteBanner}
+                onPress={() =>
+                  router.push({
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    pathname: "/(tabs)/(home)/season/[id]" as any,
+                    params: { id: round.season_id, initialTab: "standings" },
+                  })
+                }
+                activeOpacity={0.8}
+              >
+                <Text style={styles.seasonCompleteEmoji}>🏆</Text>
+                <View style={styles.seasonCompleteText}>
+                  <Text style={styles.seasonCompleteTitle}>Season complete!</Text>
+                  <Text style={styles.seasonCompleteSub}>
+                    See the final standings →
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+          <ResultsPhase
+            round={round}
+            submissions={submissions}
+            leagueName={league?.name}
+            totalRounds={totalRounds}
+            onBack={() => router.back()}
+          />
+        </ScrollView>
       </Wallpaper>
     );
   }
@@ -3205,6 +3434,7 @@ export function RoundScreen({
                 round={round}
                 userId={userId}
                 mySubmissions={mySubmissions}
+                allSubmissions={submissions}
                 onSubmitted={() => router.back()}
               />
             ))}
@@ -4062,8 +4292,8 @@ const styles = StyleSheet.create({
     color: THEME.muted,
   },
 
-  // ─── Track duration limit rejection banner ────────────────────────────────
-  trackLimitBanner: {
+  // ─── Inline track selection feedback ──────────────────────────────────────
+  hardBlockBanner: {
     backgroundColor: THEME.ink,
     borderRadius: 12,
     borderWidth: 1,
@@ -4071,44 +4301,103 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  trackLimitBannerRow: {
+  hardBlockBannerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  trackLimitBannerLeft: {
+  hardBlockBannerLeft: {
     flex: 1,
     gap: 4,
   },
-  trackLimitTagRow: {
+  hardBlockTagRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  trackLimitTag: {
+  hardBlockTag: {
     fontFamily: THEME.fonts.monoBold,
     fontSize: 9,
     letterSpacing: 1.8,
     color: "#C4FF3D",
   },
-  trackLimitDuration: {
+  hardBlockDetail: {
     fontFamily: THEME.fonts.monoBold,
     fontSize: 12,
     color: "#FFD9EC",
   },
-  trackLimitHint: {
+  hardBlockMessage: {
     fontFamily: THEME.fonts.sansMedium,
     fontSize: 11,
     color: "rgba(255,217,236,0.55)",
   },
-  trackLimitDismiss: {
+  hardBlockDismiss: {
     paddingLeft: 12,
   },
-  trackLimitDismissGlyph: {
+  hardBlockDismissGlyph: {
     fontFamily: THEME.fonts.sansBold,
     fontSize: 18,
     color: "rgba(255,217,236,0.5)",
     lineHeight: 20,
+  },
+  softWarningBanner: {
+    backgroundColor: "rgba(255,255,255,0.58)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.rule,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  softWarningContent: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  softWarningCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  softWarningTag: {
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 9,
+    letterSpacing: 1.8,
+    color: THEME.muted,
+  },
+  softWarningMessage: {
+    fontFamily: THEME.fonts.sansMedium,
+    fontSize: 12,
+    lineHeight: 16,
+    color: THEME.ink,
+  },
+  softWarningActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+  },
+  softWarningButton: {
+    minHeight: 38,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  softWarningSecondaryButton: {
+    backgroundColor: "rgba(255,255,255,0.45)",
+    borderWidth: 1,
+    borderColor: THEME.rule,
+  },
+  softWarningPrimaryButton: {
+    backgroundColor: THEME.ink,
+  },
+  softWarningSecondaryText: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 13,
+    color: THEME.ink,
+  },
+  softWarningPrimaryText: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 13,
+    color: "#FFD9EC",
   },
   // Shown while an ephemeral widget probes a SoundCloud track's duration.
   checkingLengthRow: {

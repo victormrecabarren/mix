@@ -10,6 +10,7 @@ export type VotingSubmission = {
   track_title: string;
   track_artist: string;
   track_artwork_url: string | null;
+  track_album_name: string | null;
   track_source: "spotify" | "soundcloud";
   spotify_track_id: string | null;
   soundcloud_track_url: string | null;
@@ -34,7 +35,7 @@ export async function getRoundSubmissions(
   const { data, error } = await supabase
     .from("submissions")
     .select(
-      "id, user_id, track_title, track_artist, track_artwork_url, track_source, spotify_track_id, soundcloud_track_url, track_isrc, comment, playlist_position",
+      "id, user_id, track_title, track_artist, track_artwork_url, track_album_name, track_source, spotify_track_id, soundcloud_track_url, track_isrc, comment, playlist_position",
     )
     .eq("round_id", roundId)
     .order("playlist_position", { ascending: true, nullsFirst: false });

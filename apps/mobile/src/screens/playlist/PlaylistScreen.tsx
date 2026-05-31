@@ -12,7 +12,6 @@ import {
   Alert,
   Image,
   LayoutAnimation,
-  Pressable,
   Platform,
   RefreshControl,
   ScrollView,
@@ -23,7 +22,6 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -201,9 +199,9 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
   if (!round) {
     return (
       <Wallpaper halftone={false}>
-        <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
+        <View style={{ flex: 1 }}>
           <ActivityIndicator color={THEME.ink} style={{ marginTop: 80 }} />
-        </SafeAreaView>
+        </View>
       </Wallpaper>
     );
   }
@@ -212,95 +210,87 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
 
   return (
     <Wallpaper halftone={false}>
-      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={THEME.ink}
-            />
-          }
-        >
-          {/* Hero — same image+video+fade as the voting screen so the iOS
-              zoom transition lands seamlessly when navigating from results. */}
-          <View>
-            <RoundHero
-              imageKey={ROUND_HERO_IMAGE_KEY}
-              heroHeight={heroHeight}
-            />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={THEME.ink}
+          />
+        }
+      >
+        {/* Hero — same image+video+fade as the voting screen so the iOS
+            zoom transition lands seamlessly when navigating from results. */}
+        <View>
+          <RoundHero imageKey={ROUND_HERO_IMAGE_KEY} heroHeight={heroHeight} />
 
-            <View style={styles.titleOverlay} pointerEvents="none">
-              <View style={styles.titleRow}>
-                <Text style={styles.titleText} numberOfLines={3}>
-                  {round.prompt}
-                </Text>
-                <ChromeText glyph="★" size={22} style={styles.titleStar} />
-              </View>
-              {round.description ? (
-                <Text style={styles.heroDescription} numberOfLines={3}>
-                  {round.description}
-                </Text>
-              ) : null}
+          <View style={styles.titleOverlay} pointerEvents="none">
+            <View style={styles.titleRow}>
+              <Text style={styles.titleText} numberOfLines={3}>
+                {round.prompt}
+              </Text>
+              <ChromeText glyph="★" size={22} style={styles.titleStar} />
             </View>
+            {round.description ? (
+              <Text style={styles.heroDescription} numberOfLines={3}>
+                {round.description}
+              </Text>
+            ) : null}
           </View>
+        </View>
 
-          {/* Buttons */}
-          <View style={styles.controlsRow}>
-            <BouncyPressable
-              style={[styles.circleControl, styles.circleControlMuted]}
-              disabled
-            >
-              <Clock size={17} color={THEME.ink} strokeWidth={2.6} />
-            </BouncyPressable>
-            <BouncyPressable style={styles.playControl} onPress={onPlay}>
-              <View style={styles.playTriangle} />
-              <Text style={styles.playControlText}>Play</Text>
-            </BouncyPressable>
-            <BouncyPressable
-              style={styles.circleControl}
-              onPress={onAddToSpotify}
-            >
-              <Plus size={17} color={THEME.ink} strokeWidth={2.6} />
-            </BouncyPressable>
-          </View>
+        {/* Controls */}
+        <View style={styles.controlsRow}>
+          <BouncyPressable
+            style={[styles.circleControl, styles.circleControlMuted]}
+            disabled
+          >
+            <Clock size={17} color={THEME.ink} strokeWidth={2.6} />
+          </BouncyPressable>
+          <BouncyPressable style={styles.playControl} onPress={onPlay}>
+            <View style={styles.playTriangle} />
+            <Text style={styles.playControlText}>Play</Text>
+          </BouncyPressable>
+          <BouncyPressable style={styles.circleControl} onPress={onAddToSpotify}>
+            <Plus size={17} color={THEME.ink} strokeWidth={2.6} />
+          </BouncyPressable>
+        </View>
 
-          <Text style={styles.dueLine} numberOfLines={2}>
-            {dueCopy}
-          </Text>
+        <Text style={styles.dueLine} numberOfLines={2}>
+          {dueCopy}
+        </Text>
 
-          {/* Playlist rows */}
-          <View style={styles.playlistBody}>
-            {submissions.map((sub, idx) => {
-              // ID-based current-track match — works even when the currently
-              // playing track is from a different playlist than this round.
-              const playingTrackId =
-                playback.currentIndex !== null
-                  ? playback.playlist[playback.currentIndex]?.id
-                  : null;
-              const isCurrentTrack = playingTrackId === sub.id;
-              return (
-                <PlaylistTrackRow
-                  key={sub.id}
-                  submission={sub}
-                  points={pointsBySub[sub.id] ?? 0}
-                  isWinner={winningSubId === sub.id}
-                  voters={votersData[sub.id] ?? []}
-                  isLast={idx === submissions.length - 1}
-                  isCurrentTrack={isCurrentTrack}
-                  isPlaying={isCurrentTrack && playback.isPlaying}
-                  onPress={() => {
-                    if (orderedPlaylist.length === 0) return;
-                    playback.playPlaylist(orderedPlaylist, idx);
-                  }}
-                />
-              );
-            })}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+        {/* Playlist rows */}
+        <View style={styles.playlistBody}>
+          {submissions.map((sub, idx) => {
+            // ID-based current-track match — works even when the currently
+            // playing track is from a different playlist than this round.
+            const playingTrackId =
+              playback.currentIndex !== null
+                ? playback.playlist[playback.currentIndex]?.id
+                : null;
+            const isCurrentTrack = playingTrackId === sub.id;
+            return (
+              <PlaylistTrackRow
+                key={sub.id}
+                submission={sub}
+                points={pointsBySub[sub.id] ?? 0}
+                isWinner={winningSubId === sub.id}
+                voters={votersData[sub.id] ?? []}
+                isLast={idx === submissions.length - 1}
+                isCurrentTrack={isCurrentTrack}
+                isPlaying={isCurrentTrack && playback.isPlaying}
+                onPress={() => {
+                  if (orderedPlaylist.length === 0) return;
+                  playback.playPlaylist(orderedPlaylist, idx);
+                }}
+              />
+            );
+          })}
+        </View>
+      </ScrollView>
     </Wallpaper>
   );
 }
@@ -483,31 +473,6 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     marginTop: 4,
   },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    flexWrap: "wrap",
-  },
-  metaPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "#2a0e4a",
-  },
-  metaPillText: {
-    fontFamily: THEME.fonts.monoBold,
-    fontSize: 10,
-    letterSpacing: 1.6,
-    color: "#e8d5ff",
-  },
-  metaTail: {
-    fontFamily: THEME.fonts.monoBold,
-    fontSize: 10,
-    letterSpacing: 1.6,
-    color: THEME.ink,
-  },
-
   dueLine: {
     fontFamily: THEME.fonts.sansSemi,
     fontSize: 13,
@@ -562,28 +527,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#fff",
   },
-  btnInner: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 13,
-    borderRadius: 26,
-  },
-  btnDarkBg: {
-    backgroundColor: "#2a0e4a",
-  },
-  btnLabelDark: {
-    fontFamily: THEME.fonts.sansSemi,
-    fontSize: 14,
-    color: THEME.ink,
-  },
-  btnLabelLight: {
-    fontFamily: THEME.fonts.sansSemi,
-    fontSize: 14,
-    color: "#e8d5ff",
-  },
   playTriangle: {
     width: 0,
     height: 0,
@@ -594,11 +537,6 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
     borderLeftColor: "#fff",
     marginLeft: 2,
-  },
-  btnGlyphLight: {
-    fontFamily: THEME.fonts.sansBold,
-    fontSize: 18,
-    color: "#e8d5ff",
   },
   // Playlist rows
   playlistBody: {

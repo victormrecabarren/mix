@@ -1,0 +1,9 @@
+export const FLOATING_CHROME_HORIZONTAL_INSET = 24;
+
+export const NATIVE_TAB_BAR_HEIGHT = 49;
+
+export const NOW_PLAYING_PILL_HEIGHT = 48;
+
+export const FLOATING_CHROME_GAP = 8;
+
+export const FLOATING_CHROME_TOP_PAD = 8;

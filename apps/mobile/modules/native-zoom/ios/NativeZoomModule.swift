@@ -14,6 +14,12 @@ public class NativeZoomModule: Module {
         // UIView previously registered by a <ZoomSource id={...}>.
         Function("armZoomTransition") { (sourceId: String) -> Void in
             NativeZoomRegistry.shared.armedSourceId = sourceId
+            NativeZoomRegistry.shared.armedAlignment = nil
+        }
+
+        Function("armZoomTransitionWithAlignment") { (sourceId: String, alignment: String) -> Void in
+            NativeZoomRegistry.shared.armedSourceId = sourceId
+            NativeZoomRegistry.shared.armedAlignment = alignment
         }
 
         View(ZoomSourceView.self) {

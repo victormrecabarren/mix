@@ -106,6 +106,86 @@ export async function submitRoundEntries(
   }
 }
 
+// ─── Historic conflict detection ─────────────────────────────────────────────
+
+export type HistoricTrackConflict = {
+  roundId: string;
+  roundNumber: number;
+  roundPrompt: string;
+  seasonName: string;
+  isMySubmission: boolean;
+};
+
+// Returns every prior submission in the league that matches the given track
+// identifier, excluding the current round. Used to surface soft warnings at
+// track-selection time (AC3: league history; AC4: user's own history).
+// Queries in two steps to avoid deep nested join filter limitations.
+// Fails open: callers catch and skip rather than blocking submission.
+export async function getLeagueHistoricConflicts(args: {
+  leagueId: string;
+  currentRoundId: string;
+  userId: string;
+  spotifyIsrc?: string;
+  soundcloudUrl?: string;
+}): Promise<HistoricTrackConflict[]> {
+  const { leagueId, currentRoundId, userId, spotifyIsrc, soundcloudUrl } = args;
+  if (!spotifyIsrc && !soundcloudUrl) return [];
+
+  type RoundMeta = {
+    id: string;
+    round_number: number;
+    prompt: string;
+    seasons: { name: string } | null;
+  };
+
+  const { data: roundsRaw, error: roundsErr } = await supabase
+    .from("rounds")
+    .select("id, round_number, prompt, seasons!inner(name)")
+    .eq("seasons.league_id", leagueId)
+    .neq("id", currentRoundId);
+  if (roundsErr) throw postgresToMixError(roundsErr);
+
+  const rounds = (roundsRaw ?? []) as unknown as RoundMeta[];
+  if (rounds.length === 0) return [];
+
+  const roundIds = rounds.map((r) => r.id);
+  const roundById = new Map<string, RoundMeta>(rounds.map((r) => [r.id, r]));
+
+  type SubRow = { user_id: string; round_id: string };
+  let subRows: SubRow[];
+
+  if (spotifyIsrc) {
+    const { data, error } = await supabase
+      .from("submissions")
+      .select("user_id, round_id")
+      .in("round_id", roundIds)
+      .eq("track_source", "spotify")
+      .eq("track_isrc", spotifyIsrc);
+    if (error) throw postgresToMixError(error);
+    subRows = (data ?? []) as SubRow[];
+  } else {
+    const { data, error } = await supabase
+      .from("submissions")
+      .select("user_id, round_id")
+      .in("round_id", roundIds)
+      .eq("track_source", "soundcloud")
+      .eq("soundcloud_track_url", soundcloudUrl!);
+    if (error) throw postgresToMixError(error);
+    subRows = (data ?? []) as SubRow[];
+  }
+
+  return subRows.map((s) => {
+    const round = roundById.get(s.round_id);
+    return {
+      roundId: s.round_id,
+      roundNumber: round?.round_number ?? 0,
+      roundPrompt: round?.prompt ?? "",
+      seasonName: round?.seasons?.name ?? "",
+      isMySubmission: s.user_id === userId,
+    };
+  });
+}
+
 // ─── Batched submission counts ────────────────────────────────────────────────
 // Returns a map of roundId → submission count for the requested rounds.
 // One Supabase query: PostgREST doesn't support server-side GROUP BY, so we
