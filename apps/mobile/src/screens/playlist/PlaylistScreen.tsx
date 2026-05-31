@@ -7,11 +7,11 @@
 
 import { useMemo, useState } from "react";
 import {
+  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   Image,
   LayoutAnimation,
-  Pressable,
   Platform,
   RefreshControl,
   ScrollView,
@@ -26,8 +26,10 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Clock,
   MessageCircle,
   MessageCircleMore,
+  Plus,
 } from "lucide-react-native";
 
 import { useRound } from "@/queries/useRound";
@@ -40,11 +42,12 @@ import { normalizeSpotifyTrackUri } from "@/lib/spotifyTrackUri";
 import { useTabBarBottomInset } from "@/ui/hooks/useTabBarBottomInset";
 import { THEME } from "@/ui/theme";
 import { Wallpaper } from "@/ui/Wallpaper";
+import { BouncyPressable } from "@/ui/BouncyPressable";
 import { ChromeText } from "@/ui/ChromeText";
 import { ChromeBorder } from "@/ui/ChromeBorder";
-import { ChromeButton } from "@/ui/ChromeButton";
 import { RoundHero, ROUND_HERO_IMAGE_KEY } from "@/ui/cards/RoundHero";
 import { PlayingIndicator } from "@/ui/playback/PlayingIndicator";
+import { formatVotesDueCopy } from "@/lib/utils/dueCopy";
 
 if (
   Platform.OS === "android" &&
@@ -163,10 +166,18 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
   };
 
   const onAddToSpotify = () => {
-    Alert.alert(
-      "Add to Spotify",
-      "Coming soon — this will save the round playlist to your Spotify account.",
-    );
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: "Add",
+          options: ["Cancel", "Add to Spotify"],
+          cancelButtonIndex: 0,
+        },
+        () => {},
+      );
+      return;
+    }
+    Alert.alert("Add", "Add to Spotify");
   };
 
   // Pull-to-refresh — same mechanism as the home tab.
@@ -195,14 +206,7 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
     );
   }
 
-  const pickNum = String(round.round_number).padStart(2, "0");
-  const pillLabel = [
-    `R${pickNum}`,
-    round.seasons?.name ? round.seasons.name.toUpperCase() : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const metaTail = `${submissions.length} TRACKS · FINAL`;
+  const dueCopy = formatVotesDueCopy(round.voting_deadline_at);
 
   return (
     <Wallpaper halftone={false}>
@@ -227,42 +231,36 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
               <Text style={styles.titleText} numberOfLines={3}>
                 {round.prompt}
               </Text>
-              <ChromeText
-                glyph="★"
-                size={22}
-                style={styles.titleStar}
-              />
+              <ChromeText glyph="★" size={22} style={styles.titleStar} />
             </View>
-            <View style={styles.metaRow}>
-              {pillLabel ? (
-                <View style={styles.metaPill}>
-                  <Text style={styles.metaPillText} numberOfLines={1}>
-                    {pillLabel}
-                  </Text>
-                </View>
-              ) : null}
-              <Text style={styles.metaTail} numberOfLines={1}>
-                {pillLabel ? " · " : ""}
-                {metaTail}
+            {round.description ? (
+              <Text style={styles.heroDescription} numberOfLines={3}>
+                {round.description}
               </Text>
-            </View>
+            ) : null}
           </View>
         </View>
 
-        {/* Buttons */}
-        <View style={styles.buttonsRow}>
-          <ChromeButton onPress={onPlay} style={{ flex: 1 }}>
-            <View style={styles.playTriangle} />
-            <Text style={styles.btnLabelDark}>Play</Text>
-          </ChromeButton>
-          <Pressable
-            style={[styles.btnInner, styles.btnDarkBg]}
-            onPress={onAddToSpotify}
+        {/* Controls */}
+        <View style={styles.controlsRow}>
+          <BouncyPressable
+            style={[styles.circleControl, styles.circleControlMuted]}
+            disabled
           >
-            <Text style={styles.btnGlyphLight}>+</Text>
-            <Text style={styles.btnLabelLight}>Add to Spotify</Text>
-          </Pressable>
+            <Clock size={17} color={THEME.ink} strokeWidth={2.6} />
+          </BouncyPressable>
+          <BouncyPressable style={styles.playControl} onPress={onPlay}>
+            <View style={styles.playTriangle} />
+            <Text style={styles.playControlText}>Play</Text>
+          </BouncyPressable>
+          <BouncyPressable style={styles.circleControl} onPress={onAddToSpotify}>
+            <Plus size={17} color={THEME.ink} strokeWidth={2.6} />
+          </BouncyPressable>
         </View>
+
+        <Text style={styles.dueLine} numberOfLines={2}>
+          {dueCopy}
+        </Text>
 
         {/* Playlist rows */}
         <View style={styles.playlistBody}>
@@ -329,9 +327,7 @@ function PlaylistTrackRow({
   // Visible voters in the accordion: comment authors only (this screen is
   // about reading reactions, not about who voted how). Voter ordering kept
   // as-is from the RPC.
-  const commenters = voters.filter(
-    (v) => (v.comment ?? "").trim().length > 0,
-  );
+  const commenters = voters.filter((v) => (v.comment ?? "").trim().length > 0);
   const hasComments = commenters.length > 0;
 
   const toggle = () => {
@@ -347,14 +343,13 @@ function PlaylistTrackRow({
 
   return (
     <View>
-      <TouchableOpacity activeOpacity={0.7} onPress={onPress} style={styles.row}>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={onPress}
+        style={styles.row}
+      >
         {submission.track_artwork_url ? (
-          <ChromeBorder
-            radius={8}
-            thickness={1}
-            clip
-            style={styles.rowArt}
-          >
+          <ChromeBorder radius={8} thickness={1} clip style={styles.rowArt}>
             <Image
               source={{ uri: submission.track_artwork_url }}
               style={{ width: "100%", height: "100%" }}
@@ -372,11 +367,7 @@ function PlaylistTrackRow({
               {submission.track_title}
             </Text>
             {isWinner ? (
-              <ChromeText
-                glyph="★"
-                size={14}
-                style={{ marginLeft: 4 }}
-              />
+              <ChromeText glyph="★" size={14} style={{ marginLeft: 4 }} />
             ) : null}
           </View>
           <Text style={styles.rowArtist} numberOfLines={1}>
@@ -482,78 +473,71 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     marginTop: 4,
   },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    flexWrap: "wrap",
-  },
-  metaPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "#2a0e4a",
-  },
-  metaPillText: {
-    fontFamily: THEME.fonts.monoBold,
-    fontSize: 10,
-    letterSpacing: 1.6,
-    color: "#e8d5ff",
-  },
-  metaTail: {
-    fontFamily: THEME.fonts.monoBold,
-    fontSize: 10,
-    letterSpacing: 1.6,
+  dueLine: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 13,
+    lineHeight: 18,
     color: THEME.ink,
-  },
-
-  // Buttons row
-  buttonsRow: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 22,
-    marginTop: 8,
+    textAlign: "center",
+    paddingHorizontal: 28,
     marginBottom: 18,
   },
-  btnInner: {
-    flex: 1,
+  heroDescription: {
+    fontFamily: THEME.fonts.sansMedium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: "rgba(26,8,20,0.52)",
+    textAlign: "center",
+    marginTop: -1,
+  },
+
+  // Controls row
+  controlsRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    paddingVertical: 13,
-    borderRadius: 26,
+    gap: 12,
+    paddingHorizontal: 34,
+    marginTop: 12,
+    marginBottom: 14,
   },
-  btnDarkBg: {
-    backgroundColor: "#2a0e4a",
+  circleControl: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.72)",
   },
-  btnLabelDark: {
-    fontFamily: THEME.fonts.sansSemi,
-    fontSize: 14,
-    color: THEME.ink,
+  circleControlMuted: {
+    opacity: 0.45,
   },
-  btnLabelLight: {
-    fontFamily: THEME.fonts.sansSemi,
-    fontSize: 14,
-    color: "#e8d5ff",
+  playControl: {
+    minWidth: 155,
+    height: 46,
+    borderRadius: 23,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#050405",
+  },
+  playControlText: {
+    fontFamily: THEME.fonts.sansBold,
+    fontSize: 13,
+    color: "#fff",
   },
   playTriangle: {
     width: 0,
     height: 0,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderLeftWidth: 10,
+    borderTopWidth: 6,
+    borderBottomWidth: 6,
+    borderLeftWidth: 9,
     borderTopColor: "transparent",
     borderBottomColor: "transparent",
-    borderLeftColor: THEME.ink,
+    borderLeftColor: "#fff",
     marginLeft: 2,
   },
-  btnGlyphLight: {
-    fontFamily: THEME.fonts.sansBold,
-    fontSize: 18,
-    color: "#e8d5ff",
-  },
-
   // Playlist rows
   playlistBody: {
     paddingHorizontal: 18,
