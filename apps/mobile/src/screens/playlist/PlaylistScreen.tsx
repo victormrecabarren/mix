@@ -22,7 +22,6 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -189,9 +188,9 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
   if (!round) {
     return (
       <Wallpaper halftone={false}>
-        <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
+        <View style={{ flex: 1 }}>
           <ActivityIndicator color={THEME.ink} style={{ marginTop: 80 }} />
-        </SafeAreaView>
+        </View>
       </Wallpaper>
     );
   }
@@ -207,95 +206,93 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
 
   return (
     <Wallpaper halftone={false}>
-      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={THEME.ink}
-            />
-          }
-        >
-          {/* Hero — same image+video+fade as the voting screen so the iOS
-              zoom transition lands seamlessly when navigating from results. */}
-          <View>
-            <RoundHero imageKey={ROUND_HERO_IMAGE_KEY} heroHeight={heroHeight} />
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={THEME.ink}
+          />
+        }
+      >
+        {/* Hero — same image+video+fade as the voting screen so the iOS
+            zoom transition lands seamlessly when navigating from results. */}
+        <View>
+          <RoundHero imageKey={ROUND_HERO_IMAGE_KEY} heroHeight={heroHeight} />
 
-            <View style={styles.titleOverlay} pointerEvents="none">
-              <View style={styles.titleRow}>
-                <Text style={styles.titleText} numberOfLines={3}>
-                  {round.prompt}
-                </Text>
-                <ChromeText
-                  glyph="★"
-                  size={22}
-                  style={styles.titleStar}
-                />
-              </View>
-              <View style={styles.metaRow}>
-                {pillLabel ? (
-                  <View style={styles.metaPill}>
-                    <Text style={styles.metaPillText} numberOfLines={1}>
-                      {pillLabel}
-                    </Text>
-                  </View>
-                ) : null}
-                <Text style={styles.metaTail} numberOfLines={1}>
-                  {pillLabel ? " · " : ""}
-                  {metaTail}
-                </Text>
-              </View>
+          <View style={styles.titleOverlay} pointerEvents="none">
+            <View style={styles.titleRow}>
+              <Text style={styles.titleText} numberOfLines={3}>
+                {round.prompt}
+              </Text>
+              <ChromeText
+                glyph="★"
+                size={22}
+                style={styles.titleStar}
+              />
+            </View>
+            <View style={styles.metaRow}>
+              {pillLabel ? (
+                <View style={styles.metaPill}>
+                  <Text style={styles.metaPillText} numberOfLines={1}>
+                    {pillLabel}
+                  </Text>
+                </View>
+              ) : null}
+              <Text style={styles.metaTail} numberOfLines={1}>
+                {pillLabel ? " · " : ""}
+                {metaTail}
+              </Text>
             </View>
           </View>
+        </View>
 
-          {/* Buttons */}
-          <View style={styles.buttonsRow}>
-            <ChromeButton onPress={onPlay} style={{ flex: 1 }}>
-              <View style={styles.playTriangle} />
-              <Text style={styles.btnLabelDark}>Play</Text>
-            </ChromeButton>
-            <Pressable
-              style={[styles.btnInner, styles.btnDarkBg]}
-              onPress={onAddToSpotify}
-            >
-              <Text style={styles.btnGlyphLight}>+</Text>
-              <Text style={styles.btnLabelLight}>Add to Spotify</Text>
-            </Pressable>
-          </View>
+        {/* Buttons */}
+        <View style={styles.buttonsRow}>
+          <ChromeButton onPress={onPlay} style={{ flex: 1 }}>
+            <View style={styles.playTriangle} />
+            <Text style={styles.btnLabelDark}>Play</Text>
+          </ChromeButton>
+          <Pressable
+            style={[styles.btnInner, styles.btnDarkBg]}
+            onPress={onAddToSpotify}
+          >
+            <Text style={styles.btnGlyphLight}>+</Text>
+            <Text style={styles.btnLabelLight}>Add to Spotify</Text>
+          </Pressable>
+        </View>
 
-          {/* Playlist rows */}
-          <View style={styles.playlistBody}>
-            {submissions.map((sub, idx) => {
-              // ID-based current-track match — works even when the currently
-              // playing track is from a different playlist than this round.
-              const playingTrackId =
-                playback.currentIndex !== null
-                  ? playback.playlist[playback.currentIndex]?.id
-                  : null;
-              const isCurrentTrack = playingTrackId === sub.id;
-              return (
-                <PlaylistTrackRow
-                  key={sub.id}
-                  submission={sub}
-                  points={pointsBySub[sub.id] ?? 0}
-                  isWinner={winningSubId === sub.id}
-                  voters={votersData[sub.id] ?? []}
-                  isLast={idx === submissions.length - 1}
-                  isCurrentTrack={isCurrentTrack}
-                  isPlaying={isCurrentTrack && playback.isPlaying}
-                  onPress={() => {
-                    if (orderedPlaylist.length === 0) return;
-                    playback.playPlaylist(orderedPlaylist, idx);
-                  }}
-                />
-              );
-            })}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+        {/* Playlist rows */}
+        <View style={styles.playlistBody}>
+          {submissions.map((sub, idx) => {
+            // ID-based current-track match — works even when the currently
+            // playing track is from a different playlist than this round.
+            const playingTrackId =
+              playback.currentIndex !== null
+                ? playback.playlist[playback.currentIndex]?.id
+                : null;
+            const isCurrentTrack = playingTrackId === sub.id;
+            return (
+              <PlaylistTrackRow
+                key={sub.id}
+                submission={sub}
+                points={pointsBySub[sub.id] ?? 0}
+                isWinner={winningSubId === sub.id}
+                voters={votersData[sub.id] ?? []}
+                isLast={idx === submissions.length - 1}
+                isCurrentTrack={isCurrentTrack}
+                isPlaying={isCurrentTrack && playback.isPlaying}
+                onPress={() => {
+                  if (orderedPlaylist.length === 0) return;
+                  playback.playPlaylist(orderedPlaylist, idx);
+                }}
+              />
+            );
+          })}
+        </View>
+      </ScrollView>
     </Wallpaper>
   );
 }

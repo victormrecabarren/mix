@@ -38,7 +38,7 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { Stack, useRouter, useFocusEffect } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Wallpaper } from "@/ui/Wallpaper";
 import { KeyboardScroll } from "@/components/KeyboardScroll";
 import { ChromeText } from "@/ui/ChromeText";
@@ -2700,6 +2700,7 @@ export function RoundScreen({
   const { supabaseUserId } = useSession();
   const userId = supabaseUserId;
   const bottomInset = useTabBarBottomInset();
+  const { top: topInset } = useSafeAreaInsets();
 
   const { data: round, isLoading: roundLoading, refetch: refetchRound } =
     useRound(roundId);
@@ -2906,34 +2907,36 @@ export function RoundScreen({
           }}
         />
         <Wallpaper>
-          <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-            <KeyboardScroll
-              contentContainerStyle={[
-                styles.submitScroll,
-                { paddingBottom: bottomInset + 36 },
-              ]}
-              // Gap kept between the keyboard and the focused field. Bump this
-              // if a field still feels too close to the keyboard.
-              extraScrollHeight={48}
-              enableOnAndroid
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  tintColor={THEME.ink}
-                />
-              }
-            >
-              <SubmissionsHero round={round} countdown={countdown} />
-              <SubmissionPhase
-                round={round}
-                userId={userId}
-                mySubmissions={mySubmissions}
-                allSubmissions={submissions}
-                onSubmitted={() => router.back()}
+          <KeyboardScroll
+            style={{ flex: 1 }}
+            contentContainerStyle={[
+              styles.submitScroll,
+              {
+                paddingTop: topInset + 12,
+                paddingBottom: bottomInset + 36,
+              },
+            ]}
+            // Gap kept between the keyboard and the focused field. Bump this
+            // if a field still feels too close to the keyboard.
+            extraScrollHeight={48}
+            enableOnAndroid
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={THEME.ink}
               />
-            </KeyboardScroll>
-          </SafeAreaView>
+            }
+          >
+            <SubmissionsHero round={round} countdown={countdown} />
+            <SubmissionPhase
+              round={round}
+              userId={userId}
+              mySubmissions={mySubmissions}
+              allSubmissions={submissions}
+              onSubmitted={() => router.back()}
+            />
+          </KeyboardScroll>
         </Wallpaper>
       </>
     );
@@ -2943,11 +2946,13 @@ export function RoundScreen({
   if (phase === "results") {
     return (
       <Wallpaper halftone={false}>
-        <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
         <ScrollView
           ref={scrollViewRef}
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
+          contentContainerStyle={{
+            paddingTop: topInset,
+            paddingBottom: bottomInset + 24,
+          }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -2987,7 +2992,6 @@ export function RoundScreen({
             onBack={() => router.back()}
           />
         </ScrollView>
-        </SafeAreaView>
       </Wallpaper>
     );
   }
