@@ -20,6 +20,8 @@ type SeasonForm = {
   submissionsPerUser: number;
   pointsPerRound: number;
   maxPointsPerTrack: number;
+  extensionThresholdPercent: number;
+  extensionDurationHours: number;
   startDate: Date;
   submissionDays: number;
   votingDays: number;
@@ -170,6 +172,39 @@ function StepSeason({ form, onChange }: { form: SeasonForm; onChange: (f: Season
       </View>
 
       <View style={styles.divider} />
+      <Text style={styles.groupLabel}>EXTENSION REQUESTS</Text>
+
+      <Field label="Approval Threshold" hint="Percent of participants needed to extend an active deadline">
+        <View style={styles.stepperRow}>
+          <Stepper
+            value={form.extensionThresholdPercent}
+            onChange={(v) => onChange({ ...form, extensionThresholdPercent: v })}
+            min={1}
+            max={100}
+          />
+          <Text style={styles.stepperUnit}>%</Text>
+        </View>
+      </Field>
+
+      <Field label="Extension Length" hint="Applied each time enough participants request an extension">
+        <View style={styles.stepperRow}>
+          <Stepper
+            value={form.extensionDurationHours}
+            onChange={(v) => onChange({ ...form, extensionDurationHours: v })}
+            min={1}
+            max={168}
+          />
+          <Text style={styles.stepperUnit}>{form.extensionDurationHours === 1 ? 'hour' : 'hours'}</Text>
+        </View>
+      </Field>
+
+      <View style={styles.cadenceSummary}>
+        <Text style={styles.cadenceSummaryText}>
+          Extension requests can pass more than once, but never past the next deadline boundary.
+        </Text>
+      </View>
+
+      <View style={styles.divider} />
       <Text style={styles.groupLabel}>SCORING</Text>
 
       <Field label="Submissions Per Round" hint="How many tracks each player submits per round">
@@ -310,6 +345,8 @@ const defaultSeason: SeasonForm = {
   submissionsPerUser: 2,
   pointsPerRound: 10,
   maxPointsPerTrack: 5,
+  extensionThresholdPercent: 33,
+  extensionDurationHours: 24,
   startDate: defaultStart,
   submissionDays: 5,
   votingDays: 3,
@@ -372,6 +409,9 @@ export function CreateSeasonFlow() {
         submissionsPerUser: season.submissionsPerUser,
         defaultPointsPerRound: season.pointsPerRound,
         defaultMaxPointsPerTrack: season.maxPointsPerTrack,
+        deadlineExtensionThresholdPercent: season.extensionThresholdPercent,
+        deadlineExtensionDurationMinutes: season.extensionDurationHours * 60,
+        deadlineExtensionMaxPerPhase: null,
         rounds: rounds.map((r) => ({
           prompt: r.prompt,
           description: r.description.trim(),

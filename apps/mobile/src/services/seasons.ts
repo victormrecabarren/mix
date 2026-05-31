@@ -12,6 +12,10 @@ export type Season = {
   submissions_per_user: number;
   default_points_per_round: number;
   default_max_points_per_track: number;
+  deadline_extension_enabled: boolean;
+  deadline_extension_threshold_percent: number;
+  deadline_extension_duration_minutes: number;
+  deadline_extension_max_per_phase: number | null;
   leagues: {
     id: string;
     name: string;
@@ -31,7 +35,7 @@ export type SeasonListItem = {
 // so supabase-js's select-parser rejects this select. Cast through unknown
 // until types are regenerated.
 const SEASON_SELECT =
-  "id, name, season_number, status, league_id, submissions_per_user, default_points_per_round, default_max_points_per_track, leagues(id, name, admin_user_id)";
+  "id, name, season_number, status, league_id, submissions_per_user, default_points_per_round, default_max_points_per_track, deadline_extension_enabled, deadline_extension_threshold_percent, deadline_extension_duration_minutes, deadline_extension_max_per_phase, leagues(id, name, admin_user_id)";
 
 type SeasonRow = Omit<Season, "leagues"> & {
   leagues: Season["leagues"] | Season["leagues"][];
@@ -107,6 +111,10 @@ export type CreateSeasonArgs = {
   submissionsPerUser: number;
   defaultPointsPerRound: number;
   defaultMaxPointsPerTrack: number;
+  deadlineExtensionEnabled?: boolean;
+  deadlineExtensionThresholdPercent?: number;
+  deadlineExtensionDurationMinutes?: number;
+  deadlineExtensionMaxPerPhase?: number | null;
   rounds: CreateSeasonRoundInput[];
 };
 
@@ -138,6 +146,13 @@ export async function createSeason(
       submissions_per_user: args.submissionsPerUser,
       default_points_per_round: args.defaultPointsPerRound,
       default_max_points_per_track: args.defaultMaxPointsPerTrack,
+      deadline_extension_enabled: args.deadlineExtensionEnabled ?? true,
+      deadline_extension_threshold_percent:
+        args.deadlineExtensionThresholdPercent ?? 33,
+      deadline_extension_duration_minutes:
+        args.deadlineExtensionDurationMinutes ?? 1440,
+      deadline_extension_max_per_phase:
+        args.deadlineExtensionMaxPerPhase ?? null,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any)
     .select("id")

@@ -42,6 +42,27 @@ export const invalidations = {
       qc.invalidateQueries({ queryKey: queryKeys.season(ctx.seasonId) });
     }
   },
+  deadlineExtension: (
+    qc: QueryClient,
+    ctx: { roundId: string; deadlineType: string },
+  ) => {
+    return Promise.all([
+      qc.invalidateQueries({ queryKey: queryKeys.round(ctx.roundId) }),
+      qc.invalidateQueries({
+        predicate: (q) => {
+          const key = q.queryKey as readonly unknown[];
+          return (
+            key[0] === "round" &&
+            key[1] === ctx.roundId &&
+            key[2] === "deadlineExtension" &&
+            key[3] === ctx.deadlineType
+          );
+        },
+      }),
+      qc.invalidateQueries({ queryKey: ["league"] }),
+      qc.invalidateQueries({ queryKey: ["season"] }),
+    ]);
+  },
   createRound: (qc: QueryClient, ctx: { seasonId: string }) => {
     qc.invalidateQueries({ queryKey: queryKeys.season(ctx.seasonId) });
   },

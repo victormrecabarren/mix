@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   Pressable,
   ActivityIndicator,
+  ActionSheetIOS,
   TextInput,
   Alert,
   Image,
@@ -25,8 +26,10 @@ import { LinearGradient } from "expo-linear-gradient";
 import {
   ChevronUp,
   ChevronDown,
+  Clock,
   MessageCircle,
   MessageCircleMore,
+  Plus,
 } from "lucide-react-native";
 import { imageForKey, toneForKey } from "@/ui/theme/images";
 import { videoForKey } from "@/ui/theme/videos";
@@ -41,9 +44,9 @@ import { Stack, useRouter, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Wallpaper } from "@/ui/Wallpaper";
 import { KeyboardScroll } from "@/components/KeyboardScroll";
+import { BouncyPressable } from "@/ui/BouncyPressable";
 import { ChromeText } from "@/ui/ChromeText";
 import { ChromeBorder } from "@/ui/ChromeBorder";
-import { ChromeButton } from "@/ui/ChromeButton";
 import { HaloText } from "@/ui/HaloText";
 import { FittedChromeTitle } from "@/ui/FittedChromeTitle";
 import { useSession } from "@/context/SessionContext";
@@ -60,8 +63,12 @@ import { useMyRole } from "@/queries/useMyRole";
 import { useRoundResults } from "@/queries/useRoundResults";
 import { useRoundVoters } from "@/queries/useRoundVoters";
 import { useForceEndRound } from "@/queries/useForceEndRound";
+import { useDeadlineExtensionState } from "@/queries/useDeadlineExtensionState";
+import { useRequestDeadlineExtension } from "@/queries/useRequestDeadlineExtension";
+import { useCancelDeadlineExtensionRequest } from "@/queries/useCancelDeadlineExtensionRequest";
 import { MixError } from "@/services/errors";
 import type { VoteInput, VoteCommentInput } from "@/services/votes";
+import type { DeadlineExtensionType } from "@/services/deadlineExtensions";
 import type { SubmissionDraft } from "@/services/submissions";
 import {
   searchSpotifyTracks,
@@ -81,6 +88,7 @@ import { useTabBarBottomInset } from "@/ui/hooks/useTabBarBottomInset";
 import { PODIUM_STOPS } from "@/ui/metalStops";
 import { derivePhase, formatPhaseCountdown } from "@/lib/utils/phase";
 import { roundCoverKey } from "@/lib/utils/coverKey";
+import { formatVotesDueCopy } from "@/lib/utils/dueCopy";
 import { usePlayback, type PlaylistTrack } from "@/playback/PlaybackContext";
 import { useSoundCloudDurationProbe } from "@/playback/useSoundCloudDurationProbe";
 import { normalizeSpotifyTrackUri } from "@/lib/spotifyTrackUri";
@@ -194,7 +202,10 @@ function formatDurationMs(ms: number): string {
 }
 
 function submissionToTrack(submission: Submission): PickedTrack {
-  if (submission.track_source === "soundcloud" && submission.soundcloud_track_url) {
+  if (
+    submission.track_source === "soundcloud" &&
+    submission.soundcloud_track_url
+  ) {
     return {
       source: "soundcloud",
       data: {
@@ -334,6 +345,211 @@ function ThemedButton({
         </Text>
       )}
     </TouchableOpacity>
+  );
+}
+
+function DeadlineExtensionCard({
+  roundId,
+  userId,
+  deadlineType,
+}: {
+  roundId: string;
+  userId: string;
+  deadlineType: DeadlineExtensionType;
+}) {
+  const { data: state, isLoading } = useDeadlineExtensionState(
+    roundId,
+    deadlineType,
+    userId,
+  );
+  const requestMutation = useRequestDeadlineExtension();
+  const cancelMutation = useCancelDeadlineExtensionRequest();
+  const pending = requestMutation.isPending || cancelMutation.isPending;
+  const requestPending = requestMutation.isPending || cancelMutation.isPending;
+
+  if (isLoading || !state || !state.enabled) {
+    return null;
+  }
+
+  const unavailable = !state.extensionAllowed || state.extensionLimitReached;
+  const shouldShow = state.closesWithinExtensionWindow;
+  if (!shouldShow) return null;
+
+  const canRequest = !unavailable;
+  const requestsRemaining = Math.max(
+    0,
+    state.thresholdCount - state.requestedCount,
+  );
+  const requestedByline =
+    requestsRemaining === 1
+      ? "1 more request auto-extends the deadline"
+      : `${requestsRemaining} more requests auto-extend the deadline`;
+
+  const runRequest = async () => {
+    try {
+      if (state.userRequested) {
+        await cancelMutation.mutateAsync({ roundId, deadlineType, userId });
+      } else {
+        await requestMutation.mutateAsync({ roundId, deadlineType, userId });
+      }
+    } catch (err) {
+      Alert.alert(
+        "Extension request failed",
+        err instanceof MixError ? err.message : "Unknown error",
+      );
+    }
+  };
+
+  return (
+    <View style={styles.extensionCard}>
+      <View style={styles.extensionHeaderRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.extensionPrompt}>
+            {unavailable
+              ? "No further extensions possible"
+              : state.userRequested
+                ? "Extension requested"
+                : "Need more time?"}
+          </Text>
+          {state.userRequested && !unavailable ? (
+            <Text style={styles.extensionByline}>{requestedByline}</Text>
+          ) : null}
+        </View>
+
+        <View style={styles.extensionActions}>
+          <TouchableOpacity
+            style={[
+              styles.extensionButton,
+              state.userRequested &&
+                !unavailable &&
+                styles.extensionButtonSecondary,
+              (!canRequest || pending) && styles.extensionButtonDisabled,
+            ]}
+            onPress={runRequest}
+            disabled={!canRequest || pending}
+          >
+            {requestPending ? (
+              <ActivityIndicator
+                size="small"
+                color={state.userRequested && !unavailable ? THEME.ink : "#fff"}
+              />
+            ) : (
+              <Text
+                style={[
+                  styles.extensionButtonText,
+                  state.userRequested &&
+                    !unavailable &&
+                    styles.extensionButtonSecondaryText,
+                ]}
+              >
+                {state.userRequested && !unavailable
+                  ? "Cancel request"
+                  : "Request extension"}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {state.lastOutcome === "blocked" ? (
+        <Text style={styles.extensionWarning}>
+          Last extension was blocked by the season timeline.
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function DeadlineExtensionControlButton({
+  roundId,
+  userId,
+  deadlineType,
+}: {
+  roundId: string;
+  userId: string;
+  deadlineType: DeadlineExtensionType;
+}) {
+  const { data: state, isLoading } = useDeadlineExtensionState(
+    roundId,
+    deadlineType,
+    userId,
+  );
+  const requestMutation = useRequestDeadlineExtension();
+  const cancelMutation = useCancelDeadlineExtensionRequest();
+  const pending = requestMutation.isPending || cancelMutation.isPending;
+
+  const unavailable =
+    !state ||
+    !state.enabled ||
+    !state.closesWithinExtensionWindow ||
+    !state.extensionAllowed ||
+    state.extensionLimitReached;
+
+  const runRequest = async () => {
+    if (!state || unavailable) return;
+    try {
+      if (state.userRequested) {
+        await cancelMutation.mutateAsync({ roundId, deadlineType, userId });
+      } else {
+        await requestMutation.mutateAsync({ roundId, deadlineType, userId });
+      }
+    } catch (err) {
+      Alert.alert(
+        "Extension request failed",
+        err instanceof MixError ? err.message : "Unknown error",
+      );
+    }
+  };
+
+  const onPress = () => {
+    if (!state || unavailable) return;
+    const actionLabel = state.userRequested
+      ? "Cancel request"
+      : "Request extension";
+
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: "Extension request",
+          options: ["Cancel", actionLabel],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) void runRequest();
+        },
+      );
+      return;
+    }
+
+    Alert.alert("Extension request", actionLabel, [
+      { text: "Cancel", style: "cancel" },
+      { text: actionLabel, onPress: () => void runRequest() },
+    ]);
+  };
+
+  return (
+    <BouncyPressable
+      style={[
+        styles.voteCircleControl,
+        (isLoading || unavailable || pending) && styles.voteCircleControlMuted,
+        state?.userRequested && !unavailable && styles.voteCircleControlActive,
+      ]}
+      onPress={onPress}
+      disabled={isLoading || unavailable || pending}
+      accessibilityLabel={
+        state?.userRequested ? "Cancel extension request" : "Request extension"
+      }
+    >
+      {pending ? (
+        <ActivityIndicator size="small" color={THEME.ink} />
+      ) : (
+        <Clock
+          size={20}
+          color={state?.userRequested && !unavailable ? "#fff" : THEME.ink}
+          strokeWidth={2.6}
+        />
+      )}
+    </BouncyPressable>
   );
 }
 
@@ -483,7 +699,9 @@ function SubmissionPhase({
   }, [mySubmissions, submissionsPerUser]);
   const searchDebounceKeys = useMemo(
     () =>
-      drafts.map((draft) => `${draft.isEditingTrack}:${draft.searchInput}`).join("|"),
+      drafts
+        .map((draft) => `${draft.isEditingTrack}:${draft.searchInput}`)
+        .join("|"),
     [drafts],
   );
   const searchableDrafts = useMemo(
@@ -598,9 +816,7 @@ function SubmissionPhase({
     setSearchState(slotIndex, {
       searchInput,
       trackLimitError: null,
-      ...(searchInput.trim()
-        ? {}
-        : { searchResults: [], isSearching: false }),
+      ...(searchInput.trim() ? {} : { searchResults: [], isSearching: false }),
     });
   };
 
@@ -769,13 +985,11 @@ function SubmissionPhase({
   // next slot if there's one beyond the visible set. Slots further out stay
   // hidden until the user advances.
   const lastVisibleIdx = drafts.reduce(
-    (acc, draft, i) =>
-      draft.track || draft.isEditingTrack ? i : acc,
+    (acc, draft, i) => (draft.track || draft.isEditingTrack ? i : acc),
     -1,
   );
   const peekIdx =
-    lastVisibleIdx + 1 < drafts.length &&
-    !drafts[lastVisibleIdx + 1]?.track
+    lastVisibleIdx + 1 < drafts.length && !drafts[lastVisibleIdx + 1]?.track
       ? lastVisibleIdx + 1
       : null;
 
@@ -898,7 +1112,9 @@ function SubmissionPhase({
               {draft.trackLimitError && (
                 <TrackLimitBanner
                   durationMs={draft.trackLimitError.durationMs}
-                  onDismiss={() => setSearchState(index, { trackLimitError: null })}
+                  onDismiss={() =>
+                    setSearchState(index, { trackLimitError: null })
+                  }
                 />
               )}
 
@@ -917,7 +1133,12 @@ function SubmissionPhase({
                   onPress={() => selectTrack(index, track)}
                 >
                   {pickedArtwork(track) ? (
-                    <ChromeBorder radius={8} thickness={1} clip style={styles.searchResultArt}>
+                    <ChromeBorder
+                      radius={8}
+                      thickness={1}
+                      clip
+                      style={styles.searchResultArt}
+                    >
                       <Image
                         source={{ uri: pickedArtwork(track) as string }}
                         style={{ width: "100%", height: "100%" }}
@@ -1022,7 +1243,13 @@ function VoteHeroVideoLayer({ source }: { source: number }) {
   );
 }
 
-function VoteHero({ imageKey, heroHeight }: { imageKey: string; heroHeight: number }) {
+function VoteHero({
+  imageKey,
+  heroHeight,
+}: {
+  imageKey: string;
+  heroHeight: number;
+}) {
   const image = imageForKey(imageKey);
   const video = videoForKey(imageKey);
   const tone = toneForKey(imageKey);
@@ -1084,6 +1311,7 @@ function VotingScreenContent({
   isCommissioner,
   countdown,
   leagueName,
+  extensionControlSlot,
   onVoted,
   onBack,
   onForceEnd,
@@ -1097,6 +1325,7 @@ function VotingScreenContent({
   isCommissioner: boolean;
   countdown: string;
   leagueName?: string;
+  extensionControlSlot?: React.ReactNode;
   onVoted: () => void;
   onBack: () => void;
   onForceEnd: () => void;
@@ -1176,13 +1405,22 @@ function VotingScreenContent({
   // started from) — used to flag the active row.
   const currentPlayingSubId =
     playback.currentIndex !== null
-      ? playback.playlist[playback.currentIndex]?.id ?? null
+      ? (playback.playlist[playback.currentIndex]?.id ?? null)
       : null;
 
-  // TODO(spotify): wire to real "save playlist to Spotify" once the backend
-  // hook exists. Stubbed so the button reads as functional today.
   const onAddToSpotify = () => {
-    Alert.alert("Add to Spotify", "Coming soon — this will save the round playlist to your Spotify account.");
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: "Add",
+          options: ["Cancel", "Add to Spotify"],
+          cancelButtonIndex: 0,
+        },
+        () => {},
+      );
+      return;
+    }
+    Alert.alert("Add", "Add to Spotify");
   };
 
   const adjust = (subId: string, delta: number) => {
@@ -1255,17 +1493,7 @@ function VotingScreenContent({
 
   // Pill (dark) shows round + season; the trailing text (same dark plum
   // ink) shows picks + closes time. Reference: voting page mockup, Nov 2026.
-  const pillLabel = [
-    `R${String(round.round_number).padStart(2, "0")}`,
-    round.seasons?.name ? round.seasons.name.toUpperCase() : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  const metaTail = (() => {
-    const m = countdown.match(/ in (.+)$/);
-    const dur = m ? m[1] : countdown;
-    return `${submissions.length} PICKS · CLOSES ${dur.toUpperCase()}`;
-  })();
+  const dueCopy = formatVotesDueCopy(round.voting_deadline_at);
 
   const { height: screenHeight } = useWindowDimensions();
   const heroHeight = screenHeight * 0.55;
@@ -1286,19 +1514,11 @@ function VotingScreenContent({
             </Text>
             <ChromeText glyph="★" size={22} style={styles.voteTitleStar} />
           </View>
-          <View style={styles.voteMetaRow}>
-            {pillLabel ? (
-              <View style={styles.voteMetaPill}>
-                <Text style={styles.voteMetaPillText} numberOfLines={1}>
-                  {pillLabel}
-                </Text>
-              </View>
-            ) : null}
-            <Text style={styles.voteMetaTail} numberOfLines={1}>
-              {pillLabel ? " · " : ""}
-              {metaTail}
+          {round.description ? (
+            <Text style={styles.voteHeroDescription} numberOfLines={3}>
+              {round.description}
             </Text>
-          </View>
+          ) : null}
         </View>
       </View>
 
@@ -1307,19 +1527,30 @@ function VotingScreenContent({
           on each side (the previous ChromeBorder-wrapped Play button was
           producing visible chrome bands because the inner Pressable didn't
           fill the gradient's content box). */}
-      <View style={styles.voteButtonsRow}>
-        <ChromeButton onPress={onPlay} style={{ flex: 1 }}>
+      <View style={styles.voteControlsRow}>
+        {extensionControlSlot ?? (
+          <BouncyPressable
+            style={[styles.voteCircleControl, styles.voteCircleControlMuted]}
+            disabled
+          >
+            <Clock size={17} color={THEME.ink} strokeWidth={2.6} />
+          </BouncyPressable>
+        )}
+        <BouncyPressable style={styles.votePlayControl} onPress={onPlay}>
           <View style={styles.votePlayTriangle} />
-          <Text style={styles.voteBtnLabelDark}>Play</Text>
-        </ChromeButton>
-        <Pressable
-          style={[styles.voteBtnInner, styles.voteBtnDarkBg]}
+          <Text style={styles.votePlayControlText}>Play</Text>
+        </BouncyPressable>
+        <BouncyPressable
+          style={styles.voteCircleControl}
           onPress={onAddToSpotify}
         >
-          <Text style={styles.voteBtnGlyphLight}>+</Text>
-          <Text style={styles.voteBtnLabelLight}>Add to Spotify</Text>
-        </Pressable>
+          <Plus size={17} color={THEME.ink} strokeWidth={2.6} />
+        </BouncyPressable>
       </View>
+
+      <Text style={styles.voteDueLine} numberOfLines={2}>
+        {dueCopy}
+      </Text>
 
       <View style={styles.votePlaylist}>
         {!didSubmit && !isSpectator ? (
@@ -1369,7 +1600,9 @@ function VotingScreenContent({
           // show committed votes (falling back to the draft until myVotes
           // refetches, so the count never blinks to 0 right after submitting).
           const draftPts = allocation[sub.id] ?? 0;
-          const pts = showSubmittedView ? myVotes[sub.id] ?? draftPts : draftPts;
+          const pts = showSubmittedView
+            ? (myVotes[sub.id] ?? draftPts)
+            : draftPts;
           const isOwn = sub.user_id === userId;
           const plusDisabled =
             submitting ||
@@ -1377,12 +1610,12 @@ function VotingScreenContent({
             remaining === 0 ||
             pts >= maxPerTrack ||
             isOwn;
-          const minusDisabled =
-            submitting || !canEdit || pts === 0 || isOwn;
+          const minusDisabled = submitting || !canEdit || pts === 0 || isOwn;
           const isCommentOpen = expandedCommentId === sub.id;
           const showVoteUI = canEdit && !isOwn;
           const isCurrentTrack = currentPlayingSubId === sub.id;
-          const isPlayable = !!sub.spotify_track_id || !!sub.soundcloud_track_url;
+          const isPlayable =
+            !!sub.spotify_track_id || !!sub.soundcloud_track_url;
 
           return (
             <View key={sub.id}>
@@ -1448,9 +1681,7 @@ function VotingScreenContent({
                       <ChevronUp
                         size={20}
                         strokeWidth={2.5}
-                        color={
-                          plusDisabled ? "rgba(26,8,20,0.25)" : THEME.ink
-                        }
+                        color={plusDisabled ? "rgba(26,8,20,0.25)" : THEME.ink}
                       />
                     </TouchableOpacity>
                     <Text style={styles.voteCount}>{pts}</Text>
@@ -1466,9 +1697,7 @@ function VotingScreenContent({
                       <ChevronDown
                         size={20}
                         strokeWidth={2.5}
-                        color={
-                          minusDisabled ? "rgba(26,8,20,0.25)" : THEME.ink
-                        }
+                        color={minusDisabled ? "rgba(26,8,20,0.25)" : THEME.ink}
                       />
                     </TouchableOpacity>
                   </View>
@@ -1528,115 +1757,123 @@ function VotingScreenContent({
                   and the next one. The Save/Edit button floats inside the
                   textbox on the right; the input pads its right side so the
                   text never runs under the button. */}
-              {canEdit && isCommentOpen ? (() => {
-                const isSaved = savedCommentIds.has(sub.id);
-                const isEditing = editingCommentIds.has(sub.id);
-                // Editable while drafting fresh OR while explicitly editing
-                // a previously-saved comment.
-                const editable = !isSaved || isEditing;
-                const hasDraft =
-                  (commentInputs[sub.id] ?? "").trim().length > 0;
-                // Save needs text when drafting; in editing mode Save is
-                // allowed even with empty text (acts as a delete).
-                const saveDisabled = !isEditing && !hasDraft;
-                return (
-                  <View style={styles.commentAccordion}>
-                    <TextInput
-                      style={[
-                        styles.commentAccordionInput,
-                        !editable && styles.commentAccordionInputSaved,
-                      ]}
-                      value={commentInputs[sub.id] ?? ""}
-                      onChangeText={(v) =>
-                        setCommentInputs((prev) => ({ ...prev, [sub.id]: v }))
-                      }
-                      placeholder="Leave a comment for this track…"
-                      placeholderTextColor={THEME.faint}
-                      multiline
-                      textAlignVertical="top"
-                      autoFocus={editable}
-                      editable={editable}
-                    />
-                    <View
-                      style={styles.commentInlineBtnSlot}
-                      pointerEvents="box-none"
-                    >
-                      {editable ? (
-                        <Pressable
+              {canEdit && isCommentOpen
+                ? (() => {
+                    const isSaved = savedCommentIds.has(sub.id);
+                    const isEditing = editingCommentIds.has(sub.id);
+                    // Editable while drafting fresh OR while explicitly editing
+                    // a previously-saved comment.
+                    const editable = !isSaved || isEditing;
+                    const hasDraft =
+                      (commentInputs[sub.id] ?? "").trim().length > 0;
+                    // Save needs text when drafting; in editing mode Save is
+                    // allowed even with empty text (acts as a delete).
+                    const saveDisabled = !isEditing && !hasDraft;
+                    return (
+                      <View style={styles.commentAccordion}>
+                        <TextInput
                           style={[
-                            styles.commentInlineBtn,
-                            styles.commentPrimaryBtn,
-                            saveDisabled && styles.commentPrimaryBtnDisabled,
+                            styles.commentAccordionInput,
+                            !editable && styles.commentAccordionInputSaved,
                           ]}
-                          onPress={() => {
-                            if (saveDisabled) return;
-                            const text = (commentInputs[sub.id] ?? "").trim();
-                            setSavedCommentIds((prev) => {
-                              const next = new Set(prev);
-                              if (text.length > 0) next.add(sub.id);
-                              else next.delete(sub.id); // empty save = delete
-                              return next;
-                            });
-                            setEditingCommentIds((prev) => {
-                              if (!prev.has(sub.id)) return prev;
-                              const next = new Set(prev);
-                              next.delete(sub.id);
-                              return next;
-                            });
-                            if (text.length === 0) {
-                              setCommentInputs((prev) => ({
-                                ...prev,
-                                [sub.id]: "",
-                              }));
-                            }
-                            LayoutAnimation.configureNext({
-                              duration: 180,
-                              create: {
-                                type: "easeInEaseOut",
-                                property: "opacity",
-                              },
-                              update: { type: "easeInEaseOut" },
-                              delete: {
-                                type: "easeInEaseOut",
-                                property: "opacity",
-                              },
-                            });
-                            setExpandedCommentId(null);
-                          }}
-                          disabled={saveDisabled}
-                          hitSlop={6}
+                          value={commentInputs[sub.id] ?? ""}
+                          onChangeText={(v) =>
+                            setCommentInputs((prev) => ({
+                              ...prev,
+                              [sub.id]: v,
+                            }))
+                          }
+                          placeholder="Leave a comment for this track…"
+                          placeholderTextColor={THEME.faint}
+                          multiline
+                          textAlignVertical="top"
+                          autoFocus={editable}
+                          editable={editable}
+                        />
+                        <View
+                          style={styles.commentInlineBtnSlot}
+                          pointerEvents="box-none"
                         >
-                          <Text style={styles.commentPrimaryBtnText}>
-                            Save
-                          </Text>
-                        </Pressable>
-                      ) : (
-                        <Pressable
-                          style={[
-                            styles.commentInlineBtn,
-                            styles.commentSecondaryBtn,
-                          ]}
-                          onPress={() => {
-                            // Enter editing mode while keeping the saved flag
-                            // intact, so the row indicator stays solid until
-                            // the user commits an empty-Save (= delete).
-                            setEditingCommentIds((prev) => {
-                              const next = new Set(prev);
-                              next.add(sub.id);
-                              return next;
-                            });
-                          }}
-                          hitSlop={6}
-                        >
-                          <Text style={styles.commentSecondaryBtnText}>
-                            Edit
-                          </Text>
-                        </Pressable>
-                      )}
-                    </View>
-                  </View>
-                );
-              })() : null}
+                          {editable ? (
+                            <Pressable
+                              style={[
+                                styles.commentInlineBtn,
+                                styles.commentPrimaryBtn,
+                                saveDisabled &&
+                                  styles.commentPrimaryBtnDisabled,
+                              ]}
+                              onPress={() => {
+                                if (saveDisabled) return;
+                                const text = (
+                                  commentInputs[sub.id] ?? ""
+                                ).trim();
+                                setSavedCommentIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (text.length > 0) next.add(sub.id);
+                                  else next.delete(sub.id); // empty save = delete
+                                  return next;
+                                });
+                                setEditingCommentIds((prev) => {
+                                  if (!prev.has(sub.id)) return prev;
+                                  const next = new Set(prev);
+                                  next.delete(sub.id);
+                                  return next;
+                                });
+                                if (text.length === 0) {
+                                  setCommentInputs((prev) => ({
+                                    ...prev,
+                                    [sub.id]: "",
+                                  }));
+                                }
+                                LayoutAnimation.configureNext({
+                                  duration: 180,
+                                  create: {
+                                    type: "easeInEaseOut",
+                                    property: "opacity",
+                                  },
+                                  update: { type: "easeInEaseOut" },
+                                  delete: {
+                                    type: "easeInEaseOut",
+                                    property: "opacity",
+                                  },
+                                });
+                                setExpandedCommentId(null);
+                              }}
+                              disabled={saveDisabled}
+                              hitSlop={6}
+                            >
+                              <Text style={styles.commentPrimaryBtnText}>
+                                Save
+                              </Text>
+                            </Pressable>
+                          ) : (
+                            <Pressable
+                              style={[
+                                styles.commentInlineBtn,
+                                styles.commentSecondaryBtn,
+                              ]}
+                              onPress={() => {
+                                // Enter editing mode while keeping the saved flag
+                                // intact, so the row indicator stays solid until
+                                // the user commits an empty-Save (= delete).
+                                setEditingCommentIds((prev) => {
+                                  const next = new Set(prev);
+                                  next.add(sub.id);
+                                  return next;
+                                });
+                              }}
+                              hitSlop={6}
+                            >
+                              <Text style={styles.commentSecondaryBtnText}>
+                                Edit
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })()
+                : null}
 
               {/* Subtle hairline so adjacent tracks don't read as one blob.
                   Skipped after the last row — no trailing divider before
@@ -1742,8 +1979,12 @@ function VotingPhase({
   const pointsTotal = round.seasons?.default_points_per_round ?? 10;
   const maxPerTrack = round.seasons?.default_max_points_per_track ?? 5;
 
-  const [allocation, setAllocation] = useState<Record<string, number>>(() => myVotes);
-  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
+  const [allocation, setAllocation] = useState<Record<string, number>>(
+    () => myVotes,
+  );
+  const [commentInputs, setCommentInputs] = useState<Record<string, string>>(
+    {},
+  );
   const [justSubmitted, setJustSubmitted] = useState(false);
   const submitMutation = useSubmitVotes();
   const submitting = submitMutation.isPending;
@@ -1777,30 +2018,38 @@ function VotingPhase({
 
   const submitVotes = async () => {
     if (remaining > 0) {
-      Alert.alert('Points not fully spent', `You have ${remaining} point${remaining !== 1 ? 's' : ''} left to allocate.`);
+      Alert.alert(
+        "Points not fully spent",
+        `You have ${remaining} point${remaining !== 1 ? "s" : ""} left to allocate.`,
+      );
       return;
     }
     const votes: VoteInput[] = Object.entries(allocation)
       .filter(([, pts]) => pts > 0)
       .map(([submissionId, points]) => ({ submissionId, points }));
     const comments: VoteCommentInput[] = submissions
-      .filter((s) => (commentInputs[s.id] ?? '').trim().length > 0)
+      .filter((s) => (commentInputs[s.id] ?? "").trim().length > 0)
       .map((s) => ({ submissionId: s.id, body: commentInputs[s.id] }));
 
     try {
-      await submitMutation.mutateAsync({ roundId: round.id, userId, votes, comments });
+      await submitMutation.mutateAsync({
+        roundId: round.id,
+        userId,
+        votes,
+        comments,
+      });
       onScrollToTop?.();
       LayoutAnimation.configureNext({
         duration: 450,
-        create: { type: 'easeInEaseOut', property: 'opacity' },
-        update: { type: 'easeInEaseOut', springDamping: 0.85 },
-        delete: { type: 'easeInEaseOut', property: 'opacity' },
+        create: { type: "easeInEaseOut", property: "opacity" },
+        update: { type: "easeInEaseOut", springDamping: 0.85 },
+        delete: { type: "easeInEaseOut", property: "opacity" },
       });
       setJustSubmitted(true);
       onVoted();
     } catch (err) {
-      const message = err instanceof MixError ? err.message : 'Unknown error';
-      Alert.alert('Submit failed', message);
+      const message = err instanceof MixError ? err.message : "Unknown error";
+      Alert.alert("Submit failed", message);
     }
   };
 
@@ -1810,13 +2059,26 @@ function VotingPhase({
         <View style={styles.spectatorCard}>
           <Text style={styles.spectatorCardTitle}>You&apos;re spectating</Text>
           <Text style={styles.spectatorCardBody}>
-            Sit back — participants are voting on their submissions. Results will show when voting closes.
+            Sit back — participants are voting on their submissions. Results
+            will show when voting closes.
           </Text>
         </View>
         {submissions.map((sub) => (
-          <View key={sub.id} style={[styles.submissionVoteCard, { opacity: 0.5 }]}>
-            <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
-            {!!sub.comment && <Text style={styles.submissionComment}>&ldquo;{sub.comment}&rdquo;</Text>}
+          <View
+            key={sub.id}
+            style={[styles.submissionVoteCard, { opacity: 0.5 }]}
+          >
+            <TrackRow
+              title={sub.track_title}
+              artist={sub.track_artist}
+              artwork={sub.track_artwork_url}
+              compact
+            />
+            {!!sub.comment && (
+              <Text style={styles.submissionComment}>
+                &ldquo;{sub.comment}&rdquo;
+              </Text>
+            )}
           </View>
         ))}
       </View>
@@ -1829,13 +2091,26 @@ function VotingPhase({
         <View style={styles.ineligibleBanner}>
           <Text style={styles.ineligibleTitle}>Not eligible this round</Text>
           <Text style={styles.ineligibleSub}>
-            You didn&apos;t submit a track before the deadline. You can see the submissions but can&apos;t vote.
+            You didn&apos;t submit a track before the deadline. You can see the
+            submissions but can&apos;t vote.
           </Text>
         </View>
         {submissions.map((sub) => (
-          <View key={sub.id} style={[styles.submissionVoteCard, { opacity: 0.5 }]}>
-            <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
-            {!!sub.comment && <Text style={styles.submissionComment}>&ldquo;{sub.comment}&rdquo;</Text>}
+          <View
+            key={sub.id}
+            style={[styles.submissionVoteCard, { opacity: 0.5 }]}
+          >
+            <TrackRow
+              title={sub.track_title}
+              artist={sub.track_artist}
+              artwork={sub.track_artwork_url}
+              compact
+            />
+            {!!sub.comment && (
+              <Text style={styles.submissionComment}>
+                &ldquo;{sub.comment}&rdquo;
+              </Text>
+            )}
           </View>
         ))}
       </View>
@@ -1853,10 +2128,18 @@ function VotingPhase({
         </View>
       ) : (
         <View style={styles.pointsBar}>
-          <Text style={[styles.pointsRemaining, remaining === 0 && { color: THEME.accent }]}>
+          <Text
+            style={[
+              styles.pointsRemaining,
+              remaining === 0 && { color: THEME.accent },
+            ]}
+          >
             {remaining}
           </Text>
-          <Text style={styles.mutedHint}> / {pointsTotal} pts remaining · max {maxPerTrack} per track</Text>
+          <Text style={styles.mutedHint}>
+            {" "}
+            / {pointsTotal} pts remaining · max {maxPerTrack} per track
+          </Text>
         </View>
       )}
 
@@ -1875,24 +2158,41 @@ function VotingPhase({
             style={[
               styles.submissionVoteCard,
               showSubmittedView && voted && styles.submissionVoteCardVoted,
-              showSubmittedView && !voted && !isOwn && styles.submissionVoteCardUnvoted,
+              showSubmittedView &&
+                !voted &&
+                !isOwn &&
+                styles.submissionVoteCardUnvoted,
             ]}
           >
-            <TrackRow title={sub.track_title} artist={sub.track_artist} artwork={sub.track_artwork_url} compact />
-            {!!sub.comment && <Text style={styles.submissionComment}>&ldquo;{sub.comment}&rdquo;</Text>}
+            <TrackRow
+              title={sub.track_title}
+              artist={sub.track_artist}
+              artwork={sub.track_artwork_url}
+              compact
+            />
+            {!!sub.comment && (
+              <Text style={styles.submissionComment}>
+                &ldquo;{sub.comment}&rdquo;
+              </Text>
+            )}
 
             {isOwn ? (
               <Text style={styles.ownTrackLabel}>YOUR TRACK</Text>
             ) : showSubmittedView ? (
               voted ? (
-                <Text style={styles.lockedPts}>{pts} pt{pts !== 1 ? 's' : ''} given</Text>
+                <Text style={styles.lockedPts}>
+                  {pts} pt{pts !== 1 ? "s" : ""} given
+                </Text>
               ) : (
                 <Text style={styles.lockedPtsNone}>— no points</Text>
               )
             ) : (
               <View style={styles.voteStepper}>
                 <TouchableOpacity
-                  style={[styles.voteBtn, minusDisabled && styles.voteBtnDisabled]}
+                  style={[
+                    styles.voteBtn,
+                    minusDisabled && styles.voteBtnDisabled,
+                  ]}
                   onPress={() => adjust(sub.id, -1)}
                   disabled={minusDisabled}
                 >
@@ -1900,7 +2200,10 @@ function VotingPhase({
                 </TouchableOpacity>
                 <Text style={styles.votePoints}>{currentPts}</Text>
                 <TouchableOpacity
-                  style={[styles.voteBtn, plusDisabled && styles.voteBtnDisabled]}
+                  style={[
+                    styles.voteBtn,
+                    plusDisabled && styles.voteBtnDisabled,
+                  ]}
                   onPress={() => adjust(sub.id, 1)}
                   disabled={plusDisabled}
                 >
@@ -1912,8 +2215,10 @@ function VotingPhase({
             {!showSubmittedView && (
               <TextInput
                 style={styles.commentInputField}
-                value={commentInputs[sub.id] ?? ''}
-                onChangeText={(v) => setCommentInputs((prev) => ({ ...prev, [sub.id]: v }))}
+                value={commentInputs[sub.id] ?? ""}
+                onChangeText={(v) =>
+                  setCommentInputs((prev) => ({ ...prev, [sub.id]: v }))
+                }
                 placeholder="Leave a comment… (optional)"
                 placeholderTextColor={THEME.faint}
                 multiline
@@ -2111,7 +2416,8 @@ function ResultsPhase({
           const upperPrompt = round.prompt.toUpperCase();
           const lastSpace = upperPrompt.lastIndexOf(" ");
           const head = lastSpace > 0 ? upperPrompt.slice(0, lastSpace) : "";
-          const tail = lastSpace > 0 ? upperPrompt.slice(lastSpace + 1) : upperPrompt;
+          const tail =
+            lastSpace > 0 ? upperPrompt.slice(lastSpace + 1) : upperPrompt;
           return (
             <View style={styles.resultsTitleRow}>
               {head ? (
@@ -2149,9 +2455,21 @@ function ResultsPhase({
       {/* ── Podium (top 3) ─────────────────────────────────────────────── */}
       {top3.length > 0 ? (
         <View style={styles.podiumRow}>
-          <PodiumColumn rank={2} entry={top3[1]} topPoints={top3[0]?.points_effective ?? 1} />
-          <PodiumColumn rank={1} entry={top3[0]} topPoints={top3[0]?.points_effective ?? 1} />
-          <PodiumColumn rank={3} entry={top3[2]} topPoints={top3[0]?.points_effective ?? 1} />
+          <PodiumColumn
+            rank={2}
+            entry={top3[1]}
+            topPoints={top3[0]?.points_effective ?? 1}
+          />
+          <PodiumColumn
+            rank={1}
+            entry={top3[0]}
+            topPoints={top3[0]?.points_effective ?? 1}
+          />
+          <PodiumColumn
+            rank={3}
+            entry={top3[2]}
+            topPoints={top3[0]?.points_effective ?? 1}
+          />
         </View>
       ) : null}
 
@@ -2299,9 +2617,7 @@ function PodiumColumn({
         end={{ x: 1, y: 1 }}
         style={[styles.podiumBar, { height: barHeight }]}
       >
-        <Text style={styles.podiumBarPts}>
-          +{entry.points_effective}
-        </Text>
+        <Text style={styles.podiumBarPts}>+{entry.points_effective}</Text>
         <Text style={styles.podiumBarOrdinal}>{RANK_ORDINAL[rank]}</Text>
       </LinearGradient>
     </View>
@@ -2342,9 +2658,7 @@ function ResultCard({
   // a regular numeric place chip; forfeits get no place marker.
   const isPodiumPlace = place === 1 || place === 2 || place === 3;
   return (
-    <View
-      style={[styles.resultCard, forfeit && styles.resultCardForfeit]}
-    >
+    <View style={[styles.resultCard, forfeit && styles.resultCardForfeit]}>
       <View style={styles.resultCardHeader}>
         <View style={styles.resultCardArtWrap}>
           {row.track_artwork_url ? (
@@ -2477,8 +2791,11 @@ export function RoundScreen({
   const userId = supabaseUserId;
   const bottomInset = useTabBarBottomInset();
 
-  const { data: round, isLoading: roundLoading, refetch: refetchRound } =
-    useRound(roundId);
+  const {
+    data: round,
+    isLoading: roundLoading,
+    refetch: refetchRound,
+  } = useRound(roundId);
   const roundSeasonId = round?.season_id;
   const leagueId = round?.seasons?.league_id;
 
@@ -2640,6 +2957,15 @@ export function RoundScreen({
               isCommissioner={isCommissioner}
               countdown={countdown}
               leagueName={league?.name}
+              extensionControlSlot={
+                myRole === "spectator" ? undefined : (
+                  <DeadlineExtensionControlButton
+                    roundId={round.id}
+                    userId={userId}
+                    deadlineType="voting"
+                  />
+                )
+              }
               onVoted={() => {
                 void refetchRound();
                 scrollToTop();
@@ -2668,11 +2994,7 @@ export function RoundScreen({
           options={{
             headerTitle: () => (
               <View style={styles.heroTopPill}>
-                <ChromeText
-                  glyph="✦"
-                  size={9}
-                  style={{ marginRight: 6 }}
-                />
+                <ChromeText glyph="✦" size={9} style={{ marginRight: 6 }} />
                 <Text style={styles.heroTopPillText} numberOfLines={1}>
                   R{pickNum} · SUBMIT
                   {leagueName ? ` · ${leagueName.toUpperCase()}` : ""}
@@ -2701,6 +3023,11 @@ export function RoundScreen({
               }
             >
               <SubmissionsHero round={round} countdown={countdown} />
+              <DeadlineExtensionCard
+                roundId={round.id}
+                userId={userId}
+                deadlineType="submission"
+              />
               <SubmissionPhase
                 round={round}
                 userId={userId}
@@ -2719,49 +3046,51 @@ export function RoundScreen({
     return (
       <Wallpaper halftone={false}>
         <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
-        <ScrollView
-          ref={scrollViewRef}
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={THEME.ink}
-            />
-          }
-        >
-          {round.seasons?.status === "completed" &&
-            round.round_number === totalRounds && (
-              <TouchableOpacity
-                style={styles.seasonCompleteBanner}
-                onPress={() =>
-                  router.push({
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    pathname: "/(tabs)/(home)/season/[id]" as any,
-                    params: { id: round.season_id, initialTab: "standings" },
-                  })
-                }
-                activeOpacity={0.8}
-              >
-                <Text style={styles.seasonCompleteEmoji}>🏆</Text>
-                <View style={styles.seasonCompleteText}>
-                  <Text style={styles.seasonCompleteTitle}>Season complete!</Text>
-                  <Text style={styles.seasonCompleteSub}>
-                    See the final standings →
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            )}
+          <ScrollView
+            ref={scrollViewRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={THEME.ink}
+              />
+            }
+          >
+            {round.seasons?.status === "completed" &&
+              round.round_number === totalRounds && (
+                <TouchableOpacity
+                  style={styles.seasonCompleteBanner}
+                  onPress={() =>
+                    router.push({
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      pathname: "/(tabs)/(home)/season/[id]" as any,
+                      params: { id: round.season_id, initialTab: "standings" },
+                    })
+                  }
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.seasonCompleteEmoji}>🏆</Text>
+                  <View style={styles.seasonCompleteText}>
+                    <Text style={styles.seasonCompleteTitle}>
+                      Season complete!
+                    </Text>
+                    <Text style={styles.seasonCompleteSub}>
+                      See the final standings →
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
 
-          <ResultsPhase
-            round={round}
-            submissions={submissions}
-            leagueName={league?.name}
-            totalRounds={totalRounds}
-            onBack={() => router.back()}
-          />
-        </ScrollView>
+            <ResultsPhase
+              round={round}
+              submissions={submissions}
+              leagueName={league?.name}
+              totalRounds={totalRounds}
+              onBack={() => router.back()}
+            />
+          </ScrollView>
         </SafeAreaView>
       </Wallpaper>
     );
@@ -2831,6 +3160,22 @@ export function RoundScreen({
               </Text>
             </Text>
           </View>
+
+          {userId && myRole !== "spectator" && phase === "submissions" ? (
+            <DeadlineExtensionCard
+              roundId={round.id}
+              userId={userId}
+              deadlineType="submission"
+            />
+          ) : null}
+
+          {userId && myRole !== "spectator" && phase === "voting" ? (
+            <DeadlineExtensionCard
+              roundId={round.id}
+              userId={userId}
+              deadlineType="voting"
+            />
+          ) : null}
 
           {phase === "upcoming" && prevRound && (
             <View style={styles.upcomingCard}>
@@ -2995,6 +3340,105 @@ const styles = StyleSheet.create({
   themedBtnText: {
     fontFamily: THEME.fonts.sansSemi,
     fontSize: 14,
+  },
+
+  // Deadline extension request
+  extensionCard: {
+    backgroundColor: "rgba(255,255,255,0.58)",
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(26,8,20,0.16)",
+  },
+  extensionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  extensionEyebrow: {
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 10,
+    letterSpacing: 1.2,
+    color: THEME.faint,
+  },
+  extensionTitle: {
+    fontFamily: THEME.fonts.sansBold,
+    fontSize: 15,
+    color: THEME.ink,
+    marginTop: 2,
+  },
+  extensionPrompt: {
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 12,
+    letterSpacing: 1.2,
+    color: THEME.faint,
+    textTransform: "uppercase",
+  },
+  extensionByline: {
+    fontFamily: THEME.fonts.sansMedium,
+    fontSize: 12,
+    color: THEME.muted,
+    marginTop: 3,
+  },
+  extensionDuration: {
+    fontFamily: THEME.fonts.monoBold,
+    fontSize: 12,
+    color: THEME.ink,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    overflow: "hidden",
+    backgroundColor: "rgba(26,8,20,0.08)",
+  },
+  extensionBody: {
+    fontFamily: THEME.fonts.sansMedium,
+    fontSize: 12,
+    color: THEME.muted,
+    lineHeight: 17,
+  },
+  extensionLimit: {
+    fontFamily: THEME.fonts.serifItalic,
+    fontSize: 12,
+    color: THEME.faint,
+    lineHeight: 17,
+  },
+  extensionWarning: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 12,
+    color: THEME.accent,
+  },
+  extensionActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+    flexWrap: "wrap",
+    flexShrink: 0,
+  },
+  extensionButton: {
+    borderRadius: 999,
+    backgroundColor: THEME.ink,
+    paddingHorizontal: 14,
+    height: 40,
+    minWidth: 118,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  extensionButtonSecondary: {
+    backgroundColor: "transparent",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(26,8,20,0.24)",
+  },
+  extensionButtonDisabled: {
+    opacity: 0.45,
+  },
+  extensionButtonText: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 12,
+    color: "#fff",
+  },
+  extensionButtonSecondaryText: {
+    color: THEME.ink,
   },
 
   // Points
@@ -3749,15 +4193,61 @@ const styles = StyleSheet.create({
     letterSpacing: 1.6,
     color: THEME.ink,
   },
-  voteButtonsRow: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 22,
-    // Pulled snug against the bottom of the hero rectangle. The video has
-    // already faded to transparent there, so the buttons sit on the wash
-    // immediately below the (invisible) bottom edge of the hero.
-    marginTop: 8,
+  voteDueLine: {
+    fontFamily: THEME.fonts.sansSemi,
+    fontSize: 13,
+    lineHeight: 18,
+    color: THEME.ink,
+    textAlign: "center",
+    paddingHorizontal: 28,
     marginBottom: 18,
+  },
+  voteHeroDescription: {
+    fontFamily: THEME.fonts.sansMedium,
+    fontSize: 15,
+    lineHeight: 20,
+    color: "rgba(26,8,20,0.52)",
+    textAlign: "center",
+    marginTop: -1,
+  },
+  voteControlsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingHorizontal: 34,
+    marginTop: 12,
+    marginBottom: 14,
+  },
+  voteCircleControl: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.72)",
+  },
+  voteCircleControlMuted: {
+    opacity: 0.45,
+  },
+  voteCircleControlActive: {
+    backgroundColor: THEME.ink,
+    opacity: 1,
+  },
+  votePlayControl: {
+    minWidth: 155,
+    height: 46,
+    borderRadius: 23,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#050405",
+  },
+  votePlayControlText: {
+    fontFamily: THEME.fonts.sansBold,
+    fontSize: 13,
+    color: "#fff",
   },
   voteBtnInner: {
     flex: 1,
@@ -3792,12 +4282,12 @@ const styles = StyleSheet.create({
   votePlayTriangle: {
     width: 0,
     height: 0,
-    borderTopWidth: 7,
-    borderBottomWidth: 7,
-    borderLeftWidth: 10,
+    borderTopWidth: 6,
+    borderBottomWidth: 6,
+    borderLeftWidth: 9,
     borderTopColor: "transparent",
     borderBottomColor: "transparent",
-    borderLeftColor: THEME.ink,
+    borderLeftColor: "#fff",
     marginLeft: 2,
   },
   voteBtnGlyphLight: {
@@ -3808,6 +4298,10 @@ const styles = StyleSheet.create({
 
   // ─── Voting playlist (Bubblegum hero+playlist layout) ────────────────────
 
+  voteExtensionWrap: {
+    paddingHorizontal: 18,
+    paddingTop: 10,
+  },
   votePlaylist: {
     paddingHorizontal: 18,
     paddingTop: 4,
@@ -3974,7 +4468,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingLeft: 12,
     paddingRight: 84, // reserved gutter so the typed text never collides
-                      // with the absolute-positioned Save/Edit button on the right
+    // with the absolute-positioned Save/Edit button on the right
     paddingVertical: 10,
     color: THEME.ink,
     fontFamily: THEME.fonts.sans,

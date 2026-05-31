@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
+import "@/lib/disableFontScaling";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   useFonts as useFraunces,
