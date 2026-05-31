@@ -1,6 +1,6 @@
 {
   "name": "native-zoom",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Local Expo Module that wraps iOS 18's UIViewController.preferredTransition = .zoom for React Native.",
   "main": "src/index.ts",
   "types": "src/index.ts",

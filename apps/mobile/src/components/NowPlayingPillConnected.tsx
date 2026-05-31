@@ -1,13 +1,20 @@
 // Wires the pure NowPlayingPill (presentation) to the PlaybackContext.
-// Hidden when there is no current track. Tapping the pill opens the full
-// Now Playing modal extracted into NowPlayingModal.tsx.
+// Hidden when there is no current track. Tapping the pill opens the routed
+// Now Playing screen using iOS's native zoom transition.
 
-import { useState } from 'react';
+import { useCallback, useRef } from 'react';
+import { Animated } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { armZoomTransitionToNowPlayingArt } from 'native-zoom';
 import { usePlayback } from '@/playback/PlaybackContext';
 import { NowPlayingPill } from '@/ui/playback/NowPlayingPill';
-import { NowPlayingModal } from '@/components/NowPlayingModal';
+
+const NOW_PLAYING_ZOOM_SOURCE_ID = 'now-playing-pill';
 
 export function NowPlayingPillConnected() {
+  const router = useRouter();
+  const scale = useRef(new Animated.Value(1)).current;
+  const bounceOnReturn = useRef(false);
   const {
     currentIndex,
     playlist,
@@ -20,15 +27,33 @@ export function NowPlayingPillConnected() {
     next,
     previous,
   } = usePlayback();
-  const [expanded, setExpanded] = useState(false);
+
+  const hasNext = currentIndex !== null && currentIndex < playlist.length - 1;
+  const hasPrevious = currentIndex !== null && currentIndex > 0;
+  const openNowPlaying = useCallback(() => {
+    bounceOnReturn.current = true;
+    armZoomTransitionToNowPlayingArt(NOW_PLAYING_ZOOM_SOURCE_ID);
+    router.push('/now-playing' as never);
+  }, [router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!bounceOnReturn.current) return;
+      bounceOnReturn.current = false;
+      scale.setValue(0.98);
+      Animated.spring(scale, {
+        toValue: 1,
+        speed: 22,
+        bounciness: 12,
+        useNativeDriver: true,
+      }).start();
+    }, [scale]),
+  );
 
   if (currentIndex === null) return null;
 
-  const hasNext = currentIndex < playlist.length - 1;
-  const hasPrevious = currentIndex > 0;
-
   return (
-    <>
+    <Animated.View style={{ transform: [{ scale }] }}>
       <NowPlayingPill
         title={title || 'Loading…'}
         artist={artist || undefined}
@@ -37,9 +62,9 @@ export function NowPlayingPillConnected() {
         onPlayPause={isPlaying ? pause : resume}
         onNext={hasNext ? next : undefined}
         onPrevious={hasPrevious ? previous : undefined}
-        onPress={() => setExpanded(true)}
+        onPress={openNowPlaying}
+        zoomSourceId={NOW_PLAYING_ZOOM_SOURCE_ID}
       />
-      <NowPlayingModal visible={expanded} onClose={() => setExpanded(false)} />
-    </>
+    </Animated.View>
   );
 }

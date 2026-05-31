@@ -12,6 +12,7 @@ final class NativeZoomRegistry {
 
     // The id to apply to the *next* pushed UIViewController. Cleared after use.
     var armedSourceId: String?
+    var armedAlignment: String?
 
     func register(_ view: UIView, forId id: String) {
         sources[id] = WeakView(view: view)

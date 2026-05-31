@@ -8,6 +8,7 @@
 
 import { Image } from "expo-image";
 import { FastForward, Pause, Play, Rewind } from "lucide-react-native";
+import { ZoomSource } from "native-zoom";
 import {
   Pressable,
   StyleSheet,
@@ -39,6 +40,7 @@ export interface NowPlayingPillProps {
   /** When omitted, the previous button is hidden entirely (first track). */
   onPrevious?: () => void;
   onPress?: () => void;
+  zoomSourceId?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -53,11 +55,22 @@ export function NowPlayingPill({
   onNext,
   onPrevious,
   onPress,
+  zoomSourceId,
   style,
 }: NowPlayingPillProps) {
   // Hue prop accepts strings (legacy from preview) and numbers — normalize.
   const numericHue =
     typeof hue === "number" ? hue : hue != null ? Number(hue) : 200;
+
+  const art = artworkUrl ? (
+    <Image source={{ uri: artworkUrl }} style={styles.artFill} />
+  ) : (
+    <CoverArt
+      hue={Number.isFinite(numericHue) ? numericHue : 200}
+      dual={dual}
+      style={styles.artFill}
+    />
+  );
 
   return (
     <View style={[styles.wrap, style]}>
@@ -71,14 +84,12 @@ export function NowPlayingPill({
           onPress={onPress}
           disabled={!onPress}
         >
-          {artworkUrl ? (
-            <Image source={{ uri: artworkUrl }} style={styles.art} />
+          {zoomSourceId ? (
+            <ZoomSource zoomSourceId={zoomSourceId} style={styles.art}>
+              {art}
+            </ZoomSource>
           ) : (
-            <CoverArt
-              hue={Number.isFinite(numericHue) ? numericHue : 200}
-              dual={dual}
-              style={styles.art}
-            />
+            <View style={styles.art}>{art}</View>
           )}
           <View style={styles.meta}>
             <Text style={styles.title} numberOfLines={1}>
@@ -165,7 +176,9 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 5,
+    overflow: "hidden",
   },
+  artFill: { width: "100%", height: "100%" },
   meta: { flex: 1, minWidth: 0 },
   title: { ...THEME.text.nowPlayingTitle },
   artist: { ...THEME.text.nowPlayingArtist, marginTop: 1 },
