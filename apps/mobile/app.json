@@ -18,8 +18,14 @@
       "bundleIdentifier": "com.victorrecabarren.mix",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "mix uses the microphone for audio playback routing.",
+        "NSAppleMusicUsageDescription": "mix uses Apple Music to play tracks submitted to your leagues.",
         "UIBackgroundModes": [
           "audio"
+        ]
+      },
+      "entitlements": {
+        "com.apple.developer.applesignin": [
+          "Default"
         ]
       }
     },
@@ -36,7 +42,8 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-font",
-      "expo-video"
+      "expo-video",
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true

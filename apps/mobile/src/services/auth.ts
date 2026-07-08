@@ -5,17 +5,28 @@ import {
   clearSpotifySession,
   getSpotifyProfile,
 } from "@/lib/spotifyAuth";
-import { signInToSupabase } from "@/lib/supabaseAuth";
+import { loginWithAppleMusic, clearAppleMusicSession } from "@/lib/appleMusicAuth";
+import { signInToSupabase, signInToSupabaseWithAppleMusic } from "@/lib/supabaseAuth";
+import { auditMusicCredentials } from "@/lib/musicCredentialAudit";
 import { postgresToMixError, NotAuthenticatedError } from "./errors";
 
 // Triggers the native Spotify OAuth flow, exchanges the token for a Supabase
 // session, and returns the resolved Spotify profile. Throws a NotAuthenticated
 // error if either step fails to produce a session.
 export async function signInWithSpotify(): Promise<void> {
+  auditMusicCredentials("auth.signInWithSpotify.start", {
+    requestedProvider: "spotify",
+    appleMusicCredentialsUsed: false,
+  });
   await loginWithSpotify();
   const token = await getValidAccessToken();
   if (!token) throw new NotAuthenticatedError();
   await signInToSupabase(token);
+  auditMusicCredentials("auth.signInWithSpotify.complete", {
+    requestedProvider: "spotify",
+    supabaseBridgeProvider: "spotify",
+    appleMusicCredentialsUsed: false,
+  });
 }
 
 export async function signInWithPassword(
@@ -26,10 +37,32 @@ export async function signInWithPassword(
   if (error) throw postgresToMixError(error);
 }
 
-// Tears down both the Spotify session and the Supabase session. Safe to call
-// even if one side was already cleared.
+// Triggers the native "Sign in with Apple" sheet, exchanges the identity token
+// for a Supabase session, and stores the Apple Music profile locally.
+export async function signInWithAppleMusic(): Promise<void> {
+  auditMusicCredentials("auth.signInWithAppleMusic.start", {
+    requestedProvider: "applemusic",
+    spotifyCredentialsUsed: false,
+  });
+  const profile = await loginWithAppleMusic();
+  await signInToSupabaseWithAppleMusic(profile.identityToken, profile.displayName);
+  auditMusicCredentials("auth.signInWithAppleMusic.complete", {
+    requestedProvider: "applemusic",
+    supabaseBridgeProvider: "applemusic",
+    spotifyCredentialsUsed: false,
+  });
+}
+
+// Tears down Spotify, Apple Music, and Supabase sessions. Safe to call even if
+// one or more sides were already cleared.
 export async function signOut(): Promise<void> {
-  await Promise.allSettled([clearSpotifySession(), supabase.auth.signOut()]);
+  auditMusicCredentials("auth.signOut.clearAllProviders.start");
+  await Promise.allSettled([
+    clearSpotifySession(),
+    clearAppleMusicSession(),
+    supabase.auth.signOut(),
+  ]);
+  auditMusicCredentials("auth.signOut.clearAllProviders.complete");
 }
 
 export type CurrentUser = {

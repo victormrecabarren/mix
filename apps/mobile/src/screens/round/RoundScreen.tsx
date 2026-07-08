@@ -77,6 +77,13 @@ import {
   extractSpotifyTrackId,
 } from "@/services/spotifySearch";
 import {
+  searchAppleMusicTracks,
+  getAppleMusicTrack,
+  extractAppleMusicTrackId,
+  type AppleMusicTrack,
+} from "@/services/appleMusicSearch";
+import { resolveTrackByIsrc } from "@/services/trackResolve";
+import {
   isSoundCloudTrackUrl,
   resolveSoundCloudTrack,
   type SoundCloudTrack,
@@ -92,7 +99,11 @@ import { roundCoverKey } from "@/lib/utils/coverKey";
 import { formatVotesDueCopy } from "@/lib/utils/dueCopy";
 import { usePlayback, type PlaylistTrack } from "@/playback/PlaybackContext";
 import { useSoundCloudDurationProbe } from "@/playback/useSoundCloudDurationProbe";
-import { normalizeSpotifyTrackUri } from "@/lib/spotifyTrackUri";
+import {
+  submissionToPlaylistTrack,
+  type ListenerService,
+} from "@/lib/utils/submissionPlayback";
+import { auditMusicCredentials } from "@/lib/musicCredentialAudit";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -129,9 +140,10 @@ type Submission = {
   track_artist: string;
   track_artwork_url: string | null;
   track_album_name: string | null;
-  track_source: "spotify" | "soundcloud";
+  track_source: "spotify" | "soundcloud" | "applemusic";
   spotify_track_id: string | null;
   soundcloud_track_url: string | null;
+  apple_music_id: string | null;
   track_isrc: string;
   comment: string | null;
 };
@@ -154,28 +166,56 @@ type SpotifyTrack = {
 // oEmbed gives us.
 type PickedTrack =
   | { source: "spotify"; data: SpotifyTrack }
-  | { source: "soundcloud"; data: SoundCloudTrack };
+  | { source: "soundcloud"; data: SoundCloudTrack }
+  | { source: "applemusic"; data: AppleMusicTrack };
+
+// Both catalog IDs for a music track, resolved by ISRC at selection time and
+// stored on the submission so playback works for either listener service.
+type CrossIds = { spotifyTrackId: string; appleMusicId: string; isrc: string };
 
 function pickedId(t: PickedTrack): string {
-  return t.source === "spotify" ? t.data.id : t.data.url;
+  if (t.source === "spotify") return t.data.id;
+  if (t.source === "applemusic") return t.data.id;
+  return t.data.url;
 }
 function pickedTitle(t: PickedTrack): string {
-  return t.source === "spotify" ? t.data.name : t.data.title;
+  if (t.source === "spotify") return t.data.name;
+  if (t.source === "applemusic") return t.data.name;
+  return t.data.title;
 }
 function pickedArtist(t: PickedTrack): string {
-  return t.source === "spotify"
-    ? t.data.artists.map((a) => a.name).join(", ")
-    : t.data.artist;
+  if (t.source === "spotify") return t.data.artists.map((a) => a.name).join(", ");
+  if (t.source === "applemusic") return t.data.artistName;
+  return t.data.artist;
 }
 function pickedArtwork(t: PickedTrack): string | null {
-  return t.source === "spotify"
-    ? (t.data.album.images[0]?.url ?? null)
-    : t.data.artworkUrl;
+  if (t.source === "spotify") return t.data.album.images[0]?.url ?? null;
+  if (t.source === "applemusic") return t.data.artworkUrl;
+  return t.data.artworkUrl;
+}
+// ISRC for music tracks (the cross-platform key); null for SoundCloud.
+function pickedIsrc(t: PickedTrack): string | null {
+  if (t.source === "spotify") return t.data.external_ids?.isrc ?? null;
+  if (t.source === "applemusic") return t.data.isrc ?? null;
+  return null;
+}
+function pickedDurationMs(t: PickedTrack): number | null {
+  if (t.source === "spotify") return t.data.duration_ms;
+  if (t.source === "applemusic") return t.data.durationMs;
+  return null;
+}
+function pickedAlbumName(t: PickedTrack): string | null {
+  if (t.source === "spotify") return t.data.album.name || null;
+  if (t.source === "applemusic") return t.data.albumName || null;
+  return null;
 }
 
 type DraftSubmission = {
   submissionId: string | null;
   track: PickedTrack | null;
+  // Both catalog IDs for the selected music track (null for SoundCloud, or
+  // until cross-resolution completes). Carried into the submission payload.
+  crossIds: CrossIds | null;
   comment: string;
   searchInput: string;
   searchResults: PickedTrack[];
@@ -184,7 +224,11 @@ type DraftSubmission = {
   isCheckingLength: boolean;
   trackLimitError: { durationMs: number } | null;
   conflictBlock: string | null;
-  conflictWarning: { messages: string[]; pendingTrack: PickedTrack } | null;
+  conflictWarning: {
+    messages: string[];
+    pendingTrack: PickedTrack;
+    pendingCrossIds: CrossIds | null;
+  } | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -220,6 +264,23 @@ function submissionToTrack(submission: Submission): PickedTrack {
       },
     };
   }
+  if (
+    submission.track_source === "applemusic" &&
+    submission.apple_music_id
+  ) {
+    return {
+      source: "applemusic",
+      data: {
+        id: submission.apple_music_id,
+        name: submission.track_title,
+        artistName: submission.track_artist,
+        albumName: submission.track_album_name ?? "",
+        artworkUrl: submission.track_artwork_url ?? "",
+        durationMs: 0,
+        isrc: submission.track_isrc || undefined,
+      },
+    };
+  }
   // Default: Spotify-shaped (covers existing rows whose track_source defaults
   // to 'spotify' even if the column wasn't populated yet).
   return {
@@ -248,9 +309,25 @@ function createDraftSubmission(
   existing: Submission | undefined,
   autoExpand: boolean,
 ): DraftSubmission {
+  // Seed crossIds for existing music submissions that already carry both
+  // catalog IDs, so re-submitting an unedited slot preserves them without a
+  // re-resolution round-trip.
+  const existingCrossIds: CrossIds | null =
+    existing &&
+    existing.track_source !== "soundcloud" &&
+    existing.spotify_track_id &&
+    existing.apple_music_id &&
+    existing.track_isrc
+      ? {
+          spotifyTrackId: existing.spotify_track_id,
+          appleMusicId: existing.apple_music_id,
+          isrc: existing.track_isrc,
+        }
+      : null;
   return {
     submissionId: existing?.id ?? null,
     track: existing ? submissionToTrack(existing) : null,
+    crossIds: existingCrossIds,
     comment: existing?.comment ?? "",
     searchInput: "",
     searchResults: [],
@@ -273,31 +350,6 @@ function comparableDraft(draft: DraftSubmission) {
   };
 }
 
-function submissionToPlaylistTrack(s: Submission): PlaylistTrack | null {
-  if (s.track_source === "soundcloud" && s.soundcloud_track_url) {
-    return {
-      id: s.id,
-      source: "soundcloud",
-      uri: s.soundcloud_track_url,
-      title: s.track_title,
-      artist: s.track_artist,
-      artworkUrl: s.track_artwork_url ?? "",
-      durationMs: 0,
-    };
-  }
-  if (s.spotify_track_id) {
-    return {
-      id: s.id,
-      source: "spotify",
-      uri: normalizeSpotifyTrackUri(s.spotify_track_id),
-      title: s.track_title,
-      artist: s.track_artist,
-      artworkUrl: s.track_artwork_url ?? "",
-      durationMs: 0,
-    };
-  }
-  return null;
-}
 
 function shuffled<T>(arr: T[]): T[] {
   const out = arr.slice();
@@ -786,6 +838,11 @@ function SubmissionPhase({
   const submitMutation = useSubmitRoundEntries();
   const { probeDuration, probeView } = useSoundCloudDurationProbe();
   const submitting = submitMutation.isPending;
+  const { session } = useSession();
+  // The user's chosen music service drives search: Apple users search the Apple
+  // catalog, everyone else searches Spotify. SoundCloud links work for both.
+  const musicService =
+    session?.musicService === "applemusic" ? "applemusic" : "spotify";
 
   const baselineDrafts = useMemo(() => {
     // Auto-expand the *first* empty slot so the user lands directly in the
@@ -849,26 +906,83 @@ function SubmissionPhase({
 
       try {
         let nextResults: PickedTrack[];
+        auditMusicCredentials("submission.search.route", {
+          slotIndex,
+          loggedInMusicService: musicService,
+          inputKind: isSoundCloudTrackUrl(trimmed)
+            ? "soundcloud-url"
+            : /^https?:\/\//i.test(trimmed)
+              ? "url"
+              : "text",
+          spotifyCredentialsExpected: musicService === "spotify",
+          appleMusicUserCredentialsExpected: false,
+        });
         // Anything that looks like a URL is treated as URL-mode: we never run
-        // a Spotify text search on a link (otherwise pasting "https://..."
-        // returns garbage Spotify hits matching the literal URL string).
+        // a text search on a link (otherwise pasting "https://..." returns
+        // garbage hits matching the literal URL string).
         const looksLikeUrl = /^https?:\/\//i.test(trimmed);
         if (isSoundCloudTrackUrl(trimmed)) {
           // SoundCloud link paste (including share short links) — resolve via
-          // oEmbed and surface as a single preview result.
+          // oEmbed and surface as a single preview result. Works for both
+          // Spotify and Apple Music users.
+          auditMusicCredentials("submission.search.soundCloudRoute", {
+            slotIndex,
+            loggedInMusicService: musicService,
+            credentialSource: "public-oembed",
+            spotifyCredentialsUsed: false,
+            appleMusicUserCredentialsUsed: false,
+          });
           const sc = await resolveSoundCloudTrack(trimmed);
           nextResults = [{ source: "soundcloud", data: sc }];
         } else if (looksLikeUrl) {
-          // Could still be a Spotify track URL — handle that. Any other URL
-          // (Apple Music, YouTube, random) returns an empty result set rather
-          // than falling through to text search.
-          const spotifyId = extractSpotifyTrackId(trimmed);
-          if (spotifyId) {
-            const t = await getSpotifyTrack(spotifyId);
-            nextResults = [{ source: "spotify", data: t }];
+          // A music-service track link. Accept a link for the user's OWN
+          // service; any other URL returns empty rather than text-searching.
+          if (musicService === "applemusic") {
+            const appleId = extractAppleMusicTrackId(trimmed);
+            if (appleId) {
+              auditMusicCredentials("submission.search.appleMusicUrlAccepted", {
+                slotIndex,
+                loggedInMusicService: musicService,
+                appleMusicId: appleId,
+                spotifyCredentialsUsed: false,
+              });
+              const t = await getAppleMusicTrack(appleId);
+              nextResults = [{ source: "applemusic", data: t }];
+            } else {
+              auditMusicCredentials("submission.search.urlRejectedForAppleMusicUser", {
+                slotIndex,
+                loggedInMusicService: musicService,
+                reason: "not-apple-music-track-url",
+              });
+              nextResults = [];
+            }
           } else {
-            nextResults = [];
+            const spotifyId = extractSpotifyTrackId(trimmed);
+            if (spotifyId) {
+              auditMusicCredentials("submission.search.spotifyUrlAccepted", {
+                slotIndex,
+                loggedInMusicService: musicService,
+                spotifyTrackId: spotifyId,
+                appleMusicCredentialsUsed: false,
+              });
+              const t = await getSpotifyTrack(spotifyId);
+              nextResults = [{ source: "spotify", data: t }];
+            } else {
+              auditMusicCredentials("submission.search.urlRejectedForSpotifyUser", {
+                slotIndex,
+                loggedInMusicService: musicService,
+                reason: "not-spotify-track-url",
+              });
+              nextResults = [];
+            }
           }
+        } else if (musicService === "applemusic") {
+          // Plain text query → Apple Music catalog search.
+          const appleResults = await searchAppleMusicTracks(trimmed);
+          nextResults = appleResults.map((t) => ({
+            source: "applemusic" as const,
+            data: t,
+          }));
         } else {
           // Plain text query → Spotify search.
           const spotifyResults = await searchSpotifyTracks(trimmed);
@@ -890,7 +1004,7 @@ function SubmissionPhase({
         Alert.alert("Search failed", message);
       }
     },
-    [setSearchState],
+    [setSearchState, musicService],
   );
 
   useEffect(() => {
@@ -936,7 +1050,11 @@ function SubmissionPhase({
 
   // Commit the track, close this editor, and progressively open the
   // immediately-next empty slot as the new editor.
-  const commitTrack = (slotIndex: number, track: PickedTrack) => {
+  const commitTrack = (
+    slotIndex: number,
+    track: PickedTrack,
+    crossIds: CrossIds | null = null,
+  ) => {
     const incomingId = pickedId(track);
     const duplicateSlot = drafts.findIndex(
       (draft, i) =>
@@ -962,6 +1080,7 @@ function SubmissionPhase({
           ? {
               ...draft,
               track,
+              crossIds,
               searchInput: "",
               searchResults: [],
               isSearching: false,
@@ -984,16 +1103,31 @@ function SubmissionPhase({
   };
 
   const selectTrack = async (slotIndex: number, track: PickedTrack) => {
+    console.log("[mix-debug] selectTrack picked", {
+      source: track.source,
+      id: pickedId(track),
+      isrc: pickedIsrc(track),
+      album: pickedAlbumName(track),
+      artist: pickedArtist(track),
+    });
+    auditMusicCredentials("submission.selectTrack.start", {
+      slotIndex,
+      loggedInMusicService: musicService,
+      pickedSource: track.source,
+      pickedId: pickedId(track),
+      pickedIsrc: pickedIsrc(track),
+      expectedUserCredentialProvider:
+        track.source === "spotify"
+          ? "spotify"
+          : track.source === "applemusic"
+            ? "none-for-catalog-search"
+            : "none",
+    });
     // Clear any conflict banner from a previous selection attempt in this slot.
     setSearchState(slotIndex, { conflictBlock: null, conflictWarning: null });
 
-    // Duration check — Spotify has it in the payload; SoundCloud needs probing.
-    if (track.source === "spotify") {
-      if (track.data.duration_ms > MAX_TRACK_DURATION_MS) {
-        rejectTooLong(slotIndex, track.data.duration_ms);
-        return;
-      }
-    } else {
+    // Duration check — music tracks carry it in the payload; SoundCloud probes.
+    if (track.source === "soundcloud") {
       // Guard against double-taps while a probe is already running.
       if (drafts[slotIndex]?.isCheckingLength) return;
       setSearchState(slotIndex, { isCheckingLength: true });
@@ -1004,18 +1138,93 @@ function SubmissionPhase({
         rejectTooLong(slotIndex, durationMs);
         return;
       }
+    } else {
+      const durationMs = pickedDurationMs(track) ?? 0;
+      if (durationMs > MAX_TRACK_DURATION_MS) {
+        rejectTooLong(slotIndex, durationMs);
+        return;
+      }
+    }
+
+    // Cross-platform eligibility — music tracks must exist on BOTH Spotify and
+    // Apple Music (matched by ISRC) so any listener can hear the full song.
+    // SoundCloud is exempt (both services stream it). We resolve here and stash
+    // both catalog IDs on the draft for the submission payload.
+    let crossIds: CrossIds | null = null;
+    if (track.source !== "soundcloud") {
+      const isrc = pickedIsrc(track);
+      if (!isrc) {
+        setSearchState(slotIndex, {
+          conflictBlock:
+            "This track has no ISRC, so we can't verify it on both services.",
+        });
+        return;
+      }
+      setSearchState(slotIndex, { isCheckingLength: true });
+      try {
+        const resolved = await resolveTrackByIsrc(isrc);
+        // Prefer the user's own-service ID (correct storefront/edition); take
+        // the counterpart from resolution.
+        const spotifyId =
+          track.source === "spotify" ? track.data.id : resolved.spotify?.id;
+        const appleId =
+          track.source === "applemusic" ? track.data.id : resolved.appleMusic?.id;
+        if (!spotifyId || !appleId) {
+          setSearchState(slotIndex, {
+            isCheckingLength: false,
+            conflictBlock:
+              "This track isn't available on both Spotify and Apple Music, so it can't be submitted.",
+          });
+          return;
+        }
+        crossIds = { spotifyTrackId: spotifyId, appleMusicId: appleId, isrc };
+        auditMusicCredentials("submission.selectTrack.crossResolved", {
+          slotIndex,
+          loggedInMusicService: musicService,
+          pickedSource: track.source,
+          isrc,
+          spotifyTrackId: spotifyId,
+          appleMusicId: appleId,
+          eligibleForSpotifyPlayback: true,
+          eligibleForAppleMusicPlayback: true,
+          crossResolveCredentialSource: "resolve-track-edge-function",
+          spotifyUserCredentialsUsedForCrossResolve: false,
+          appleMusicUserCredentialsUsedForCrossResolve: false,
+        });
+        console.log("[mix-debug] selectTrack cross-resolved", {
+          submitSource: track.source,
+          isrc,
+          pickedId: pickedId(track),
+          storedAppleMusicId: appleId,
+          storedSpotifyId: spotifyId,
+          resolveApple: resolved.appleMusic
+            ? { id: resolved.appleMusic.id, album: resolved.appleMusic.albumName }
+            : null,
+          resolveSpotify: resolved.spotify
+            ? { id: resolved.spotify.id, album: resolved.spotify.albumName }
+            : null,
+        });
+      } catch {
+        setSearchState(slotIndex, {
+          isCheckingLength: false,
+          conflictBlock: "Couldn't verify this track right now. Try again.",
+        });
+        return;
+      }
+      setSearchState(slotIndex, { isCheckingLength: false });
     }
 
     // Only check against other users' submissions (editing your own slot is fine).
     const otherSubs = allSubmissions.filter((s) => s.user_id !== userId);
 
     // AC1: Hard block — exact track already in this round by another user.
+    // Music tracks dedup by ISRC across all services; SoundCloud by URL.
     const roundDuplicate = otherSubs.some((s) => {
-      if (track.source === "spotify") {
-        const isrc = track.data.external_ids?.isrc;
-        return isrc && isrc !== "" && s.track_source === "spotify" && s.track_isrc === isrc;
+      if (track.source === "soundcloud") {
+        return s.track_source === "soundcloud" && s.soundcloud_track_url === track.data.url;
       }
-      return s.track_source === "soundcloud" && s.soundcloud_track_url === track.data.url;
+      const isrc = pickedIsrc(track);
+      return !!isrc && s.track_isrc === isrc;
     });
     if (roundDuplicate) {
       LayoutAnimation.configureNext({
@@ -1041,10 +1250,10 @@ function SubmissionPhase({
       warnings.push(`${trackArtist} already has a track in this round.`);
     }
 
-    // AC2b: same album already in this round (Spotify only). Skip it when
+    // AC2b: same album already in this round (music tracks). Skip it when
     // the same-artist warning already covers the likely concern.
-    if (!hasArtistConflict && track.source === "spotify" && track.data.album.name) {
-      const albumName = track.data.album.name;
+    const albumName = pickedAlbumName(track);
+    if (!hasArtistConflict && track.source !== "soundcloud" && albumName) {
       if (otherSubs.some((s) => s.track_album_name?.toLowerCase() === albumName.toLowerCase())) {
         warnings.push(`Another track from "${albumName}" is already in this round.`);
       }
@@ -1054,17 +1263,15 @@ function SubmissionPhase({
     const leagueId = round.seasons?.league_id;
     if (leagueId) {
       try {
-        const spotifyIsrc =
-          track.source === "spotify" && track.data.external_ids?.isrc
-            ? track.data.external_ids.isrc
-            : undefined;
+        const isrc =
+          track.source !== "soundcloud" ? (pickedIsrc(track) ?? undefined) : undefined;
         const soundcloudUrl = track.source === "soundcloud" ? track.data.url : undefined;
 
         const historic = await getLeagueHistoricConflicts({
           leagueId,
           currentRoundId: round.id,
           userId,
-          spotifyIsrc,
+          isrc,
           soundcloudUrl,
         });
 
@@ -1091,7 +1298,7 @@ function SubmissionPhase({
     }
 
     if (warnings.length === 0) {
-      commitTrack(slotIndex, track);
+      commitTrack(slotIndex, track, crossIds);
       return;
     }
 
@@ -1101,7 +1308,11 @@ function SubmissionPhase({
       update: { type: "easeInEaseOut" },
     });
     setSearchState(slotIndex, {
-      conflictWarning: { messages: warnings, pendingTrack: track },
+      conflictWarning: {
+        messages: warnings,
+        pendingTrack: track,
+        pendingCrossIds: crossIds,
+      },
     });
   };
 
@@ -1145,17 +1356,21 @@ function SubmissionPhase({
     const payload: SubmissionDraft[] = drafts
       .filter((d): d is DraftSubmission & { track: PickedTrack } => !!d.track)
       .map((d) => {
-        if (d.track.source === "spotify") {
-          const t = d.track.data;
+        const track = d.track;
+        // Music tracks carry both catalog IDs (resolved at selection time) so
+        // playback works for either listener service.
+        if (track.source === "spotify") {
+          const t = track.data;
           return {
             submissionId: d.submissionId,
             track: {
               source: "spotify" as const,
               spotifyTrackId: t.id,
+              appleMusicId: d.crossIds?.appleMusicId ?? null,
               title: t.name,
               artist: t.artists.map((a) => a.name).join(", "),
               artworkUrl: t.album.images[0]?.url ?? null,
-              isrc: t.external_ids?.isrc ?? null,
+              isrc: t.external_ids?.isrc ?? d.crossIds?.isrc ?? null,
               albumName: t.album.name || null,
               durationMs: t.duration_ms || null,
               popularity: t.popularity || null,
@@ -1163,7 +1378,25 @@ function SubmissionPhase({
             comment: d.comment,
           };
         }
-        const t = d.track.data;
+        if (track.source === "applemusic") {
+          const t = track.data;
+          return {
+            submissionId: d.submissionId,
+            track: {
+              source: "applemusic" as const,
+              appleMusicId: t.id,
+              spotifyTrackId: d.crossIds?.spotifyTrackId ?? null,
+              title: t.name,
+              artist: t.artistName,
+              artworkUrl: t.artworkUrl || null,
+              isrc: t.isrc ?? d.crossIds?.isrc ?? null,
+              albumName: t.albumName || null,
+              durationMs: t.durationMs || null,
+            },
+            comment: d.comment,
+          };
+        }
+        const t = track.data;
         return {
           submissionId: d.submissionId,
           track: {
@@ -1178,6 +1411,34 @@ function SubmissionPhase({
       });
 
     try {
+      auditMusicCredentials("submission.submitPayload", {
+        loggedInMusicService: musicService,
+        roundId: round.id,
+        userId,
+        tracks: payload.map((entry) => ({
+          submissionId: entry.submissionId,
+          submittedSource: entry.track.source,
+          spotifyTrackId:
+            entry.track.source === "spotify" ||
+            entry.track.source === "applemusic"
+              ? entry.track.spotifyTrackId ?? null
+              : null,
+          appleMusicId:
+            entry.track.source === "spotify" ||
+            entry.track.source === "applemusic"
+              ? entry.track.appleMusicId ?? null
+              : null,
+          soundcloudTrackUrl:
+            entry.track.source === "soundcloud"
+              ? entry.track.soundcloudTrackUrl
+              : null,
+          isrc:
+            entry.track.source === "spotify" ||
+            entry.track.source === "applemusic"
+              ? entry.track.isrc
+              : null,
+        })),
+      });
       await submitMutation.mutateAsync({
         roundId: round.id,
         userId,
@@ -1340,7 +1601,13 @@ function SubmissionPhase({
                 <SoftWarningBanner
                   messages={draft.conflictWarning.messages}
                   onDismiss={() => setSearchState(index, { conflictWarning: null })}
-                  onConfirm={() => commitTrack(index, draft.conflictWarning!.pendingTrack)}
+                  onConfirm={() =>
+                    commitTrack(
+                      index,
+                      draft.conflictWarning!.pendingTrack,
+                      draft.conflictWarning!.pendingCrossIds,
+                    )
+                  }
                 />
               )}
 
@@ -1450,6 +1717,8 @@ function VoteHeroVideoLayer({ source }: { source: number }) {
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
     p.muted = true;
+    p.volume = 0;
+    p.audioMixingMode = "mixWithOthers";
     p.play();
   });
   return (
@@ -1594,6 +1863,9 @@ function VotingScreenContent({
   const submitMutation = useSubmitVotes();
   const submitting = submitMutation.isPending;
   const playback = usePlayback();
+  const { session } = useSession();
+  const listenerService: ListenerService =
+    session?.musicService === "applemusic" ? "applemusic" : "spotify";
 
   const used = Object.values(allocation).reduce((a, b) => a + b, 0);
   const remaining = pointsTotal - used;
@@ -1609,13 +1881,42 @@ function VotingScreenContent({
   const orderedPlaylist: PlaylistTrack[] = useMemo(
     () =>
       submissions
-        .map(submissionToPlaylistTrack)
+        .map((s) => submissionToPlaylistTrack(s, listenerService))
         .filter((t): t is PlaylistTrack => t !== null),
-    [submissions],
+    [submissions, listenerService],
   );
+
+  useEffect(() => {
+    auditMusicCredentials("playback.playlistMapping.votingScreen", {
+      loggedInMusicService: session?.musicService ?? null,
+      listenerService,
+      submissionCount: submissions.length,
+      playableCount: orderedPlaylist.length,
+      rows: submissions.map((s) => ({
+        submissionId: s.id,
+        submittedSource: s.track_source,
+        listenerService,
+        playbackSource:
+          s.track_source === "soundcloud" ? "soundcloud" : listenerService,
+        hasSpotifyTrackId: !!s.spotify_track_id,
+        hasAppleMusicId: !!s.apple_music_id,
+        hasSoundCloudUrl: !!s.soundcloud_track_url,
+        isPlayable: orderedPlaylist.some((t) => t.id === s.id),
+      })),
+    });
+  }, [listenerService, orderedPlaylist, session?.musicService, submissions]);
 
   const onPlay = () => {
     if (orderedPlaylist.length === 0) return;
+    auditMusicCredentials("playback.playlistStart.votingScreen", {
+      loggedInMusicService: session?.musicService ?? null,
+      listenerService,
+      startIndex: 0,
+      trackCount: orderedPlaylist.length,
+      playbackSources: orderedPlaylist.map((t) => t.source),
+      spotifyCredentialsExpected: listenerService === "spotify",
+      appleMusicCredentialsExpected: listenerService === "applemusic",
+    });
     playback.playPlaylist(orderedPlaylist, 0);
   };
 
@@ -1624,6 +1925,18 @@ function VotingScreenContent({
   const onPlaySubmission = (subId: string) => {
     const idx = orderedPlaylist.findIndex((t) => t.id === subId);
     if (idx === -1) return;
+    const submission = submissions.find((s) => s.id === subId);
+    auditMusicCredentials("playback.rowStart.votingScreen", {
+      loggedInMusicService: session?.musicService ?? null,
+      listenerService,
+      submittedSource: submission?.track_source ?? null,
+      playbackSource: orderedPlaylist[idx]?.source,
+      targetIndex: idx,
+      submissionId: subId,
+      spotifyCredentialsExpected: orderedPlaylist[idx]?.source === "spotify",
+      appleMusicCredentialsExpected:
+        orderedPlaylist[idx]?.source === "applemusic",
+    });
     playback.playPlaylist(orderedPlaylist, idx);
   };
 
@@ -2491,6 +2804,9 @@ function ResultsPhase({
 
   const playback = usePlayback();
   const playlistRouter = useRouter();
+  const { session } = useSession();
+  const listenerService: ListenerService =
+    session?.musicService === "applemusic" ? "applemusic" : "spotify";
   void totalRounds;
 
   const submissionCommentById = useMemo(() => {
@@ -2555,18 +2871,68 @@ function ResultsPhase({
       eligible
         .map((row) => submissionById[row.submission_id])
         .filter((s): s is Submission => !!s)
-        .map(submissionToPlaylistTrack)
+        .map((s) => submissionToPlaylistTrack(s, listenerService))
         .filter((t): t is PlaylistTrack => t !== null),
-    [eligible, submissionById],
+    [eligible, submissionById, listenerService],
   );
+
+  useEffect(() => {
+    const orderedSubmissionIds = new Set(orderedPlaylist.map((t) => t.id));
+    auditMusicCredentials("playback.playlistMapping.resultsScreen", {
+      loggedInMusicService: session?.musicService ?? null,
+      listenerService,
+      eligibleCount: eligible.length,
+      playableCount: orderedPlaylist.length,
+      rows: eligible.map((row) => {
+        const submission = submissionById[row.submission_id];
+        return {
+          submissionId: row.submission_id,
+          submittedSource: submission?.track_source ?? null,
+          listenerService,
+          playbackSource: submission
+            ? submission.track_source === "soundcloud"
+              ? "soundcloud"
+              : listenerService
+            : null,
+          hasSpotifyTrackId: !!submission?.spotify_track_id,
+          hasAppleMusicId: !!submission?.apple_music_id,
+          hasSoundCloudUrl: !!submission?.soundcloud_track_url,
+          isPlayable: orderedSubmissionIds.has(row.submission_id),
+        };
+      }),
+    });
+  }, [
+    eligible,
+    listenerService,
+    orderedPlaylist,
+    session?.musicService,
+    submissionById,
+  ]);
 
   const onPlay = () => {
     if (orderedPlaylist.length === 0) return;
+    auditMusicCredentials("playback.playlistStart.resultsScreen", {
+      loggedInMusicService: session?.musicService ?? null,
+      listenerService,
+      startIndex: 0,
+      trackCount: orderedPlaylist.length,
+      playbackSources: orderedPlaylist.map((t) => t.source),
+      spotifyCredentialsExpected: listenerService === "spotify",
+      appleMusicCredentialsExpected: listenerService === "applemusic",
+    });
     playback.playPlaylist(orderedPlaylist, 0);
   };
 
   const onShuffle = () => {
     if (orderedPlaylist.length === 0) return;
+    auditMusicCredentials("playback.shuffleStart.resultsScreen", {
+      loggedInMusicService: session?.musicService ?? null,
+      listenerService,
+      trackCount: orderedPlaylist.length,
+      playbackSources: orderedPlaylist.map((t) => t.source),
+      spotifyCredentialsExpected: listenerService === "spotify",
+      appleMusicCredentialsExpected: listenerService === "applemusic",
+    });
     playback.playPlaylist(shuffled(orderedPlaylist), 0);
   };
 
@@ -3004,6 +3370,58 @@ function ResultCard({
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
+function RoundFocusDebugLogger({
+  roundId,
+  round,
+  prevRound,
+}: {
+  roundId: string;
+  round: Round;
+  prevRound: SiblingRound | null;
+}) {
+  const playback = usePlayback();
+  const playbackDebugRef = useRef({
+    currentIndex: playback.currentIndex,
+    isPlaying: playback.isPlaying,
+    title: playback.title,
+    artist: playback.artist,
+    source:
+      playback.currentIndex !== null
+        ? playback.playlist[playback.currentIndex]?.source
+        : undefined,
+  });
+  playbackDebugRef.current = {
+    currentIndex: playback.currentIndex,
+    isPlaying: playback.isPlaying,
+    title: playback.title,
+    artist: playback.artist,
+    source:
+      playback.currentIndex !== null
+        ? playback.playlist[playback.currentIndex]?.source
+        : undefined,
+  };
+
+  const roundDebugRef = useRef<{ roundId: string; phase: string | null }>({
+    roundId,
+    phase: null,
+  });
+  roundDebugRef.current = {
+    roundId,
+    phase: derivePhase(round, prevRound),
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      console.log("[mix-debug] RoundScreen focused", {
+        ...roundDebugRef.current,
+        playback: playbackDebugRef.current,
+      });
+    }, []),
+  );
+
+  return null;
+}
+
 export function RoundScreen({
   roundId,
   seasonId,
@@ -3017,7 +3435,6 @@ export function RoundScreen({
   const userId = supabaseUserId;
   const bottomInset = useTabBarBottomInset();
   const { top: topInset } = useSafeAreaInsets();
-
   const {
     data: round,
     isLoading: roundLoading,
@@ -3051,6 +3468,10 @@ export function RoundScreen({
   );
   const submissions: Submission[] = submissionsData ?? [];
   const myVotes = myVotesData ?? {};
+  const mySubmissions = useMemo(
+    () => submissions.filter((s) => s.user_id === userId),
+    [submissions, userId],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -3147,8 +3568,14 @@ export function RoundScreen({
   }
 
   const phase = derivePhase(round, prevRound ?? null);
-  const mySubmissions = submissions.filter((s) => s.user_id === userId);
   const countdown = formatPhaseCountdown(round, prevRound ?? null);
+  const focusDebugLogger = (
+    <RoundFocusDebugLogger
+      roundId={roundId}
+      round={round}
+      prevRound={prevRound ?? null}
+    />
+  );
 
   // Voting phase gets the iridescent-wash treatment with a full-bleed hero
   // (image/video, fades into the wash). No bubblegum halftone overlay here —
@@ -3160,6 +3587,7 @@ export function RoundScreen({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={88}
       >
+        {focusDebugLogger}
         <Wallpaper halftone={false}>
           <ScrollView
             ref={scrollViewRef}
@@ -3214,6 +3642,7 @@ export function RoundScreen({
     const leagueName = league?.name;
     return (
       <>
+        {focusDebugLogger}
         {/* Dynamically inject the round/league pill into the native nav
             header so it sits at the same Y as the iOS liquid-glass back
             chevron — visually just under the notch. */}
@@ -3275,6 +3704,7 @@ export function RoundScreen({
   if (phase === "results") {
     return (
       <Wallpaper halftone={false}>
+        {focusDebugLogger}
         <ScrollView
           ref={scrollViewRef}
           style={{ flex: 1 }}
@@ -3333,6 +3763,7 @@ export function RoundScreen({
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={88}
     >
+      {focusDebugLogger}
       <ScrollView
         ref={scrollViewRef}
         style={{ flex: 1, backgroundColor: THEME.bg }}

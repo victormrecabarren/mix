@@ -64,6 +64,10 @@ export function SwipeSheet({
   const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(SCREEN_H)).current;
   const closingRef = useRef(false);
+  // dy already accumulated when we win the responder (≈8–12px when stealing a
+  // drag via move-capture). Subtracted from every move so the sheet picks up
+  // from 0 instead of jumping.
+  const grantDyRef = useRef(0);
   const resolvedHeaderTopInset = headerTopInset ?? insets.top + 12;
 
   const resetPosition = useCallback(() => {
@@ -105,12 +109,17 @@ export function SwipeSheet({
     onMoveShouldSetPanResponderCapture: (_, { dy, dx }) =>
       dy > 8 && Math.abs(dy) > Math.abs(dx) * 1.5,
     onPanResponderTerminationRequest: () => true,
+    onPanResponderGrant: (_, { dy }) => {
+      grantDyRef.current = dy;
+    },
     onPanResponderMove: (_, { dy }) => {
-      if (dy > 0) translateY.setValue(dy);
+      const adjusted = dy - grantDyRef.current;
+      if (adjusted > 0) translateY.setValue(adjusted);
     },
     onPanResponderRelease: (_, { dy, vy }) => {
-      if (dy > dismissThreshold || vy > dismissVelocityThreshold) {
-        const remaining = SCREEN_H - dy;
+      const adjusted = dy - grantDyRef.current;
+      if (adjusted > dismissThreshold || vy > dismissVelocityThreshold) {
+        const remaining = SCREEN_H - Math.max(adjusted, 0);
         const velocityBasedMs = vy > 0.1 ? (remaining / vy) : closeDuration;
         const duration = Math.min(closeDuration, Math.max(120, velocityBasedMs));
         dismiss(duration);
@@ -134,10 +143,27 @@ export function SwipeSheet({
     <Modal visible={visible} transparent animationType="none" onRequestClose={() => dismiss()}>
       <View style={styles.overlay}>
         {showBackdrop && (
-          <Pressable
-            style={[styles.backdrop, { backgroundColor: backdropColor }]}
-            onPress={dismissOnBackdropPress ? () => dismiss() : undefined}
-          />
+          // Backdrop opacity rides the sheet's translateY (native driver), so
+          // it fades in as the sheet opens and out as it is dragged/animated
+          // away — no full-dark flash at the end of a dismissal.
+          <Animated.View
+            style={[
+              styles.backdrop,
+              {
+                backgroundColor: backdropColor,
+                opacity: translateY.interpolate({
+                  inputRange: [0, SCREEN_H],
+                  outputRange: [1, 0],
+                  extrapolate: 'clamp',
+                }),
+              },
+            ]}
+          >
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={dismissOnBackdropPress ? () => dismiss() : undefined}
+            />
+          </Animated.View>
         )}
         <Animated.View
           style={[

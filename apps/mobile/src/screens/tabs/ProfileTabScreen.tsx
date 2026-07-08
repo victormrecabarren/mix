@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { usePlayback } from '@/playback/PlaybackContext';
+import { usePlayback, usePlaybackPosition } from '@/playback/PlaybackContext';
 import { useSession } from '@/context/SessionContext';
 import { useLeague } from '@/context/LeagueContext';
 import { useMyLeagues } from '@/queries/useMyLeagues';
@@ -12,15 +12,16 @@ function formatMs(ms: number) {
   return `${m}:${(s % 60).toString().padStart(2, '0')}`;
 }
 
+// Reads the fast-ticking position context itself so the ~500ms playback tick
+// re-renders only this leaf (see PlaybackPositionContext).
 function SeekBar({
-  positionMs,
   durationMs,
   onSeek,
 }: {
-  positionMs: number;
   durationMs: number;
   onSeek: (ms: number) => void;
 }) {
+  const positionMs = usePlaybackPosition();
   const [barWidth, setBarWidth] = useState(1);
   const progress = durationMs > 0 ? Math.min(positionMs / durationMs, 1) : 0;
   const fillWidth = progress * barWidth;
@@ -140,7 +141,6 @@ export function ProfileTabScreen() {
     currentIndex,
     playlist,
     isPlaying,
-    positionMs,
     durationMs,
     title,
     artist,
@@ -227,7 +227,7 @@ export function ProfileTabScreen() {
           </Text>
         </View>
 
-        <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
+        <SeekBar durationMs={durationMs} onSeek={seek} />
 
         <View style={styles.controls}>
           <ControlBtn label="⏮" onPress={previous} disabled={!hasPrevious} />

@@ -13,6 +13,7 @@ import {
   getValidAccessToken,
 } from "@/lib/spotifyAuth";
 import { normalizeSpotifyTrackUri } from "@/lib/spotifyTrackUri";
+import { auditMusicCredentials } from "@/lib/musicCredentialAudit";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -407,6 +408,13 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
 
   const play = useCallback(async (uri: string) => {
     const trackUri = normalizeSpotifyTrackUri(uri);
+    auditMusicCredentials("playback.spotify.play.requested", {
+      provider: "spotify",
+      requestedUri: uri,
+      normalizedUri: trackUri,
+      credentialSource: "spotify-user-token",
+      appleMusicCredentialsUsed: false,
+    });
     if (!/^spotify:track:[0-9A-Za-z]{22}$/.test(trackUri)) {
       console.warn("[SpotifyWebPlayer] invalid track uri:", uri, "→", trackUri);
       return;
@@ -420,6 +428,10 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
     try {
       const token = await getValidAccessToken();
       if (!token) {
+        auditMusicCredentials("playback.spotify.play.blocked", {
+          reason: "missing-spotify-token",
+          appleMusicCredentialsUsed: false,
+        });
         console.warn("[SpotifyWebPlayer] play: no valid token");
         resetGate();
         return;
@@ -439,6 +451,10 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
       }
 
       if (!deviceId) {
+        auditMusicCredentials("playback.spotify.play.blocked", {
+          reason: "missing-spotify-device",
+          appleMusicCredentialsUsed: false,
+        });
         console.warn("[SpotifyWebPlayer] play: timed out waiting for device");
         resetGate();
         return;
@@ -468,6 +484,11 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
 
       if (!res.ok) {
         const body = await res.text();
+        auditMusicCredentials("playback.spotify.play.failed", {
+          status: res.status,
+          credentialSource: "spotify-user-token",
+          appleMusicCredentialsUsed: false,
+        });
         console.warn("[SpotifyWebPlayer] play API failed:", res.status, body.slice(0, 200));
         resetGate();
         setTrackState(null);
@@ -477,7 +498,18 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
       // Success — open the gate
       acceptRef.current = true;
       suppressRef.current = false;
+      auditMusicCredentials("playback.spotify.play.started", {
+        provider: "spotify",
+        normalizedUri: trackUri,
+        credentialSource: "spotify-user-token",
+        appleMusicCredentialsUsed: false,
+      });
     } catch (e) {
+      auditMusicCredentials("playback.spotify.play.failed", {
+        reason: "exception",
+        credentialSource: "spotify-user-token",
+        appleMusicCredentialsUsed: false,
+      });
       console.warn("[SpotifyWebPlayer] play error:", e);
       resetGate();
     }

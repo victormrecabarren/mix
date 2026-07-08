@@ -1,6 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/context/SessionContext';
+
+const STORAGE_KEY = 'activeLeagueId';
 
 type League = {
   id: string;
@@ -31,8 +34,10 @@ export function LeagueProvider({ children }: { children: React.ReactNode }) {
     setActiveLeague(data ?? null);
   }, []);
 
-  // When the user signs in, auto-select their first league.
-  // When they sign out, clear the active league.
+  // On sign-in: restore the last selected league from storage, then verify the
+  // user is still a member. Falls back to their oldest-joined league if the
+  // stored ID is missing or they're no longer a member (e.g. removed, new device).
+  // On sign-out: clear state and storage.
   useEffect(() => {
     if (!supabaseUserId) {
       setActiveLeagueIdState(null);
@@ -42,25 +47,50 @@ export function LeagueProvider({ children }: { children: React.ReactNode }) {
     }
 
     setLoading(true);
-    supabase
-      .from('league_members')
-      .select('league_id')
-      .eq('user_id', supabaseUserId)
-      .order('joined_at', { ascending: true })
-      .limit(1)
-      .single()
-      .then(({ data }) => {
+
+    const resolve = async () => {
+      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+
+      if (stored) {
+        const { data } = await supabase
+          .from('league_members')
+          .select('league_id')
+          .eq('user_id', supabaseUserId)
+          .eq('league_id', stored)
+          .maybeSingle();
+
         if (data?.league_id) {
           setActiveLeagueIdState(data.league_id);
-          void resolveActiveLeague(data.league_id);
+          await resolveActiveLeague(data.league_id);
+          setLoading(false);
+          return;
         }
-        setLoading(false);
-      });
+      }
+
+      // No valid stored league — fall back to oldest joined
+      const { data } = await supabase
+        .from('league_members')
+        .select('league_id')
+        .eq('user_id', supabaseUserId)
+        .order('joined_at', { ascending: true })
+        .limit(1)
+        .single();
+
+      if (data?.league_id) {
+        setActiveLeagueIdState(data.league_id);
+        await resolveActiveLeague(data.league_id);
+        void AsyncStorage.setItem(STORAGE_KEY, data.league_id);
+      }
+      setLoading(false);
+    };
+
+    void resolve();
   }, [supabaseUserId, resolveActiveLeague]);
 
   const setActiveLeagueId = useCallback((id: string) => {
     setActiveLeagueIdState(id);
     void resolveActiveLeague(id);
+    void AsyncStorage.setItem(STORAGE_KEY, id);
   }, [resolveActiveLeague]);
 
   return (

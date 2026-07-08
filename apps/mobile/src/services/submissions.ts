@@ -1,14 +1,22 @@
 import { supabase } from "@/lib/supabase";
+import { auditMusicCredentials } from "@/lib/musicCredentialAudit";
 import { postgresToMixError } from "./errors";
 
 // Shape passed by the UI for each track slot. Discriminated by `source`;
 // each branch carries the fields needed to populate the matching DB columns.
 // A single submission row carries exactly one source's identity — the DB has
 // a check constraint that enforces this.
+// Music submissions (Spotify or Apple Music) carry BOTH catalog IDs once the
+// track has been cross-resolved by ISRC — `source` records where the submitter
+// found it, but both IDs are stored so playback can pick whichever matches the
+// listener's service. The cross-platform ID is optional only to stay
+// compatible with callers that haven't resolved yet (the submission flow
+// resolves and populates both before writing).
 export type TrackSelection =
   | {
       source: "spotify";
       spotifyTrackId: string;
+      appleMusicId?: string | null;
       title: string;
       artist: string;
       artworkUrl: string | null;
@@ -23,6 +31,17 @@ export type TrackSelection =
       title: string;
       artist: string;
       artworkUrl: string | null;
+    }
+  | {
+      source: "applemusic";
+      appleMusicId: string;
+      spotifyTrackId?: string | null;
+      title: string;
+      artist: string;
+      artworkUrl: string | null;
+      isrc: string | null;
+      albumName: string | null;
+      durationMs: number | null;
     };
 
 // One per slot. submissionId = null means "insert new"; otherwise "update".
@@ -52,23 +71,39 @@ function draftToColumns(draft: SubmissionDraft) {
       track_source: "spotify" as const,
       spotify_track_id: track.spotifyTrackId,
       soundcloud_track_url: null,
+      apple_music_id: track.appleMusicId ?? null,
       track_isrc: track.isrc ?? "",
       track_album_name: track.albumName,
       track_duration_ms: track.durationMs,
       track_popularity: track.popularity,
     };
   }
-  // SoundCloud: no ISRC / popularity / album-name / Spotify duration.
-  // track_isrc is NOT NULL in the schema, so we stash an empty string —
-  // matches the existing pattern for Spotify tracks missing an ISRC.
+  if (track.source === "soundcloud") {
+    // SoundCloud: no ISRC / popularity / album-name / duration.
+    // track_isrc is NOT NULL in the schema, so we stash an empty string.
+    return {
+      ...common,
+      track_source: "soundcloud" as const,
+      spotify_track_id: null,
+      soundcloud_track_url: track.soundcloudTrackUrl,
+      apple_music_id: null,
+      track_isrc: "",
+      track_album_name: null,
+      track_duration_ms: null,
+      track_popularity: null,
+    };
+  }
+
+  // Apple Music
   return {
     ...common,
-    track_source: "soundcloud" as const,
-    spotify_track_id: null,
-    soundcloud_track_url: track.soundcloudTrackUrl,
-    track_isrc: "",
-    track_album_name: null,
-    track_duration_ms: null,
+    track_source: "applemusic" as const,
+    spotify_track_id: track.spotifyTrackId ?? null,
+    soundcloud_track_url: null,
+    apple_music_id: track.appleMusicId,
+    track_isrc: track.isrc ?? "",
+    track_album_name: track.albumName,
+    track_duration_ms: track.durationMs,
     track_popularity: null,
   };
 }
@@ -82,6 +117,31 @@ export async function submitRoundEntries(
 ): Promise<void> {
   const updates = args.drafts.filter((d) => d.submissionId);
   const inserts = args.drafts.filter((d) => !d.submissionId);
+  auditMusicCredentials("submission.dbWrite.start", {
+    roundId: args.roundId,
+    userId: args.userId,
+    updateCount: updates.length,
+    insertCount: inserts.length,
+    tracks: args.drafts.map((d) => ({
+      mode: d.submissionId ? "update" : "insert",
+      submissionId: d.submissionId,
+      source: d.track.source,
+      spotifyTrackId:
+        d.track.source === "spotify" || d.track.source === "applemusic"
+          ? d.track.spotifyTrackId ?? null
+          : null,
+      appleMusicId:
+        d.track.source === "spotify" || d.track.source === "applemusic"
+          ? d.track.appleMusicId ?? null
+          : null,
+      soundcloudTrackUrl:
+        d.track.source === "soundcloud" ? d.track.soundcloudTrackUrl : null,
+      isrc:
+        d.track.source === "spotify" || d.track.source === "applemusic"
+          ? d.track.isrc
+          : null,
+    })),
+  });
 
   const updateResults = await Promise.all(
     updates.map((d) =>
@@ -104,6 +164,12 @@ export async function submitRoundEntries(
     const { error } = await supabase.from("submissions").insert(rows);
     if (error) throw postgresToMixError(error);
   }
+  auditMusicCredentials("submission.dbWrite.complete", {
+    roundId: args.roundId,
+    userId: args.userId,
+    updateCount: updates.length,
+    insertCount: inserts.length,
+  });
 }
 
 // ─── Historic conflict detection ─────────────────────────────────────────────
@@ -125,11 +191,15 @@ export async function getLeagueHistoricConflicts(args: {
   leagueId: string;
   currentRoundId: string;
   userId: string;
-  spotifyIsrc?: string;
+  // ISRC is source-agnostic — Spotify and Apple Music tracks share the same ISRC space.
+  isrc?: string;
   soundcloudUrl?: string;
+  // @deprecated use isrc instead
+  spotifyIsrc?: string;
 }): Promise<HistoricTrackConflict[]> {
-  const { leagueId, currentRoundId, userId, spotifyIsrc, soundcloudUrl } = args;
-  if (!spotifyIsrc && !soundcloudUrl) return [];
+  const { leagueId, currentRoundId, userId, soundcloudUrl } = args;
+  const isrc = args.isrc ?? args.spotifyIsrc;
+  if (!isrc && !soundcloudUrl) return [];
 
   type RoundMeta = {
     id: string;
@@ -154,13 +224,15 @@ export async function getLeagueHistoricConflicts(args: {
   type SubRow = { user_id: string; round_id: string };
   let subRows: SubRow[];
 
-  if (spotifyIsrc) {
+  if (isrc) {
+    // Query across all sources — Spotify and Apple Music share the ISRC space,
+    // so the same song submitted via either service counts as a conflict.
     const { data, error } = await supabase
       .from("submissions")
       .select("user_id, round_id")
       .in("round_id", roundIds)
-      .eq("track_source", "spotify")
-      .eq("track_isrc", spotifyIsrc);
+      .eq("track_isrc", isrc)
+      .neq("track_isrc", "");
     if (error) throw postgresToMixError(error);
     subRows = (data ?? []) as SubRow[];
   } else {

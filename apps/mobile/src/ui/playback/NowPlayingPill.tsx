@@ -6,10 +6,12 @@
 // The visual design is ported from `apps/mobile/src/app/ui-preview/_NowPlayingBar.tsx`.
 // Keep both in lockstep until that file becomes a thin shim around this one.
 
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Image } from "expo-image";
 import { FastForward, Pause, Play, Rewind } from "lucide-react-native";
 import { ZoomSource } from "native-zoom";
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -61,6 +63,30 @@ export function NowPlayingPill({
   // Hue prop accepts strings (legacy from preview) and numbers — normalize.
   const numericHue =
     typeof hue === "number" ? hue : hue != null ? Number(hue) : 200;
+  const [displayPlaying, setDisplayPlaying] = useState(isPlaying);
+  const iconScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    setDisplayPlaying(isPlaying);
+  }, [isPlaying]);
+
+  const pressPlayPause = useCallback(() => {
+    const nextDisplay = !displayPlaying;
+    onPlayPause();
+    Animated.timing(iconScale, {
+      toValue: 0.2,
+      duration: 80,
+      useNativeDriver: true,
+    }).start(() => {
+      setDisplayPlaying(nextDisplay);
+      Animated.spring(iconScale, {
+        toValue: 1,
+        speed: 28,
+        bounciness: 10,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [displayPlaying, iconScale, onPlayPause]);
 
   const art = artworkUrl ? (
     <Image source={{ uri: artworkUrl }} style={styles.artFill} />
@@ -116,22 +142,24 @@ export function NowPlayingPill({
                 />
               </Pressable>
             ) : null}
-            <Pressable style={styles.iconBtn} hitSlop={8} onPress={onPlayPause}>
-              {isPlaying ? (
-                <Pause
-                  size={20}
-                  color={THEME.ink}
-                  fill={THEME.ink}
-                  strokeWidth={0}
-                />
-              ) : (
-                <Play
-                  size={20}
-                  color={THEME.ink}
-                  fill={THEME.ink}
-                  strokeWidth={0}
-                />
-              )}
+            <Pressable style={styles.iconBtn} hitSlop={8} onPress={pressPlayPause}>
+              <Animated.View style={{ transform: [{ scale: iconScale }] }}>
+                {displayPlaying ? (
+                  <Pause
+                    size={20}
+                    color={THEME.ink}
+                    fill={THEME.ink}
+                    strokeWidth={0}
+                  />
+                ) : (
+                  <Play
+                    size={20}
+                    color={THEME.ink}
+                    fill={THEME.ink}
+                    strokeWidth={0}
+                  />
+                )}
+              </Animated.View>
             </Pressable>
             {onNext ? (
               <Pressable style={styles.iconBtn} hitSlop={8} onPress={onNext}>
