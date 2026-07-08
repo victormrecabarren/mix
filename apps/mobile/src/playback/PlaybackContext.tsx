@@ -3,23 +3,33 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
 import { normalizeSpotifyTrackUri } from '@/lib/spotifyTrackUri';
 import { useSpotifyPlayer } from './SpotifyWebPlayer';
 import { useSoundCloudPlayer } from './SoundCloudWebPlayer';
+import { useAppleMusicPlayer } from './AppleMusicPlayer';
+import { auditMusicCredentials } from '@/lib/musicCredentialAudit';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export type PlaybackSource = 'spotify' | 'soundcloud' | 'applemusic';
+
 export interface PlaylistTrack {
   id: string;
-  source: 'spotify' | 'soundcloud';
+  source: PlaybackSource;
+  // For spotify: a spotify track URI. For soundcloud: the canonical URL.
+  // For applemusic: the Apple Music catalog song ID.
   uri: string;
   title: string;
   artist: string;
   artworkUrl: string;
   durationMs: number;
+  // Stable recording key. For applemusic tracks, used as a storefront-agnostic
+  // fallback when the catalog id (`uri`) doesn't resolve on the device.
+  isrc?: string;
 }
 
 interface PlaybackContextValue {
@@ -29,7 +39,7 @@ interface PlaybackContextValue {
 
   // Now-playing (live)
   isPlaying: boolean;
-  positionMs: number;
+  isLoading: boolean;
   durationMs: number;
   artworkUrl: string;
   title: string;
@@ -51,7 +61,7 @@ const PlaybackContext = createContext<PlaybackContextValue>({
   playlist: [],
   currentIndex: null,
   isPlaying: false,
-  positionMs: 0,
+  isLoading: false,
   durationMs: 0,
   artworkUrl: '',
   title: '',
@@ -65,8 +75,23 @@ const PlaybackContext = createContext<PlaybackContextValue>({
   seek: () => {},
 });
 
+// The playback position ticks every ~500ms while anything is playing. It
+// lives in its own context so those ticks only re-render the few leaf
+// components that actually show a position (seek bars) — NOT every
+// usePlayback() consumer (RoundScreen, PlaylistScreen, the pill, the whole
+// now-playing sheet…). Re-rendering all of those on a half-second heartbeat
+// blocked the JS thread mid-gesture and made PanResponder drags (sheet
+// dismiss, art swipe) visibly hitch at the same rhythm.
+const PlaybackPositionContext = createContext(0);
+
 export function usePlayback() {
   return useContext(PlaybackContext);
+}
+
+// Subscribe as close to the leaf as possible — the consuming component will
+// re-render every ~500ms while playback is live.
+export function usePlaybackPosition() {
+  return useContext(PlaybackPositionContext);
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -74,11 +99,13 @@ export function usePlayback() {
 export function PlaybackProvider({ children }: { children: React.ReactNode }) {
   const spotify = useSpotifyPlayer();
   const sc = useSoundCloudPlayer();
+  const am = useAppleMusicPlayer();
 
   const [playlist, setPlaylist] = useState<PlaylistTrack[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
-  const [activeSource, setActiveSource] = useState<'spotify' | 'soundcloud' | null>(null);
-  const activeSourceRef = useRef<'spotify' | 'soundcloud' | null>(null);
+  const [activeSource, setActiveSource] = useState<PlaybackSource | null>(null);
+  const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null);
+  const activeSourceRef = useRef<PlaybackSource | null>(null);
   activeSourceRef.current = activeSource;
 
   const currentTrack = currentIndex !== null ? playlist[currentIndex] : null;
@@ -118,6 +145,15 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeSource, sc.trackState?.currentPosition]);
 
+  // ── Sync Apple Music state ─────────────────────────────────────────────────
+  // The native module emits position on a 500ms timer, so (like SoundCloud) we
+  // take the reported position directly rather than extrapolating.
+  useEffect(() => {
+    if (activeSource === 'applemusic' && am.trackState) {
+      setDisplayPositionMs(am.trackState.currentPosition);
+    }
+  }, [activeSource, am.trackState?.currentPosition]);
+
   // ── 500ms interval to extrapolate Spotify position ────────────────────────
   useEffect(() => {
     if (activeSource !== 'spotify') return;
@@ -137,6 +173,7 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       if (activeSourceRef.current !== 'spotify') return;
       setCurrentIndex(null);
       setActiveSource(null);
+      setLoadingTrackId(null);
       setDisplayPositionMs(0);
     });
   }, [spotify]);
@@ -163,7 +200,22 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       )
     : activeSource === 'soundcloud'
     ? !!(sc.trackState && !sc.trackState.isPaused)
+    : activeSource === 'applemusic'
+    ? !!(am.trackState && !am.trackState.isPaused)
     : false;
+  const isLoading = !!currentTrack && loadingTrackId === currentTrack.id && !isPlaying;
+
+  useEffect(() => {
+    if (isPlaying) setLoadingTrackId(null);
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if (!loadingTrackId) return;
+    const id = setTimeout(() => {
+      setLoadingTrackId((current) => (current === loadingTrackId ? null : current));
+    }, 8000);
+    return () => clearTimeout(id);
+  }, [loadingTrackId]);
 
   const durationMs = activeSource === 'spotify'
     ? spotifyLiveMatchesPlaylist
@@ -171,6 +223,8 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       : (currentTrack?.durationMs ?? 0)
     : activeSource === 'soundcloud'
     ? (sc.trackState?.duration ?? currentTrack?.durationMs ?? 0)
+    : activeSource === 'applemusic'
+    ? (am.trackState?.duration ?? currentTrack?.durationMs ?? 0)
     : 0;
 
   const artworkUrl = activeSource === 'spotify'
@@ -179,6 +233,12 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       : currentTrack?.artworkUrl || ''
     : activeSource === 'soundcloud'
     ? (sc.trackState?.artworkUrl || currentTrack?.artworkUrl || '')
+    : activeSource === 'applemusic'
+    // Surface the SUBMITTED artwork, not the playback entry's. The catalog id
+    // is only an audio handle (any same-ISRC entry streams identical audio), so
+    // its own album art may differ (e.g. a compilation). What the submitter
+    // picked is the source of truth for the UI.
+    ? (currentTrack?.artworkUrl || am.trackState?.artworkUrl || '')
     : '';
 
   const title = activeSource === 'spotify'
@@ -187,6 +247,9 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       : currentTrack?.title || ''
     : activeSource === 'soundcloud'
     ? (sc.trackState?.trackTitle || currentTrack?.title || '')
+    : activeSource === 'applemusic'
+    // Submitted title is authoritative (see artwork note above).
+    ? (currentTrack?.title || am.trackState?.trackTitle || '')
     : '';
 
   const artist = activeSource === 'spotify'
@@ -195,6 +258,9 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       : currentTrack?.artist || ''
     : activeSource === 'soundcloud'
     ? (sc.trackState?.artistName || currentTrack?.artist || '')
+    : activeSource === 'applemusic'
+    // Submitted artist is authoritative (see artwork note above).
+    ? (currentTrack?.artist || am.trackState?.artistName || '')
     : '';
 
   // ── Commands ───────────────────────────────────────────────────────────────
@@ -208,6 +274,25 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
   // Internal: actually start a track. Always interrupts whatever is playing.
   const startTrack = useCallback((tracks: PlaylistTrack[], index: number) => {
     const track = tracks[index];
+    auditMusicCredentials("playback.startTrack.route", {
+      index,
+      tracksLength: tracks.length,
+      hasTrack: !!track,
+      playbackSource: track?.source ?? null,
+      trackId: track?.id ?? null,
+      uri: track?.uri ?? null,
+      spotifyCredentialsExpected: track?.source === "spotify",
+      appleMusicCredentialsExpected: track?.source === "applemusic",
+      appleMusicCredentialsUsed: track?.source === "applemusic",
+      spotifyCredentialsUsed: track?.source === "spotify",
+    });
+    console.log("[mix-debug] startTrack", {
+      index,
+      tracksLength: tracks.length,
+      hasTrack: !!track,
+      source: track?.source,
+      uri: track?.uri,
+    });
     if (!track) return;
 
     // Reset auto-advance guard for the new track
@@ -215,16 +300,27 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
 
     setCurrentIndex(index);
     setActiveSource(track.source);
+    setLoadingTrackId(track.id);
     setDisplayPositionMs(0);
 
     if (track.source === 'spotify') {
       if (sc.trackState && !sc.trackState.isPaused) sc.pause();
+      if (am.trackState && !am.trackState.isPaused) am.pause();
       void spotify.play(track.uri);
+    } else if (track.source === 'applemusic') {
+      console.log("[mix-debug] routing to Apple Music", {
+        uri: track.uri,
+        amIsReady: am.isReady,
+      });
+      spotify.abandonMixSpotifySession();
+      if (sc.trackState && !sc.trackState.isPaused) sc.pause();
+      am.play(track.uri, track.isrc);
     } else {
       spotify.abandonMixSpotifySession();
+      if (am.trackState && !am.trackState.isPaused) am.pause();
       sc.load(track.uri);
     }
-  }, [spotify, sc]);
+  }, [spotify, sc, am]);
 
   // Public: load a playlist and immediately start a track from it.
   // Use this from screens — it synchronously sets the playlist and kicks off
@@ -245,12 +341,21 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
 
   const pause = useCallback(() => {
     if (activeSource === null) return;
+    setLoadingTrackId(null);
+    console.trace("[mix-debug] PlaybackContext.pause() called", {
+      activeSource,
+      currentIndex,
+      currentTrackId: currentTrack?.id,
+      title: currentTrack?.title,
+    });
     if (activeSource === 'spotify') spotify.pause();
     else if (activeSource === 'soundcloud') sc.pause();
-  }, [activeSource, spotify, sc]);
+    else if (activeSource === 'applemusic') am.pause();
+  }, [activeSource, currentIndex, currentTrack, spotify, sc, am]);
 
   const resume = useCallback(() => {
     if (activeSource === null) return;
+    if (currentTrack) setLoadingTrackId(currentTrack.id);
     if (activeSource === 'spotify') {
       if (currentIndex === null) return;
       const track =
@@ -274,8 +379,10 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       spotify.resume();
     } else if (activeSource === 'soundcloud') {
       sc.play();
+    } else if (activeSource === 'applemusic') {
+      am.resume();
     }
-  }, [activeSource, currentIndex, playlist, spotify, sc]);
+  }, [activeSource, currentIndex, currentTrack, playlist, spotify, sc, am]);
 
   const seek = useCallback((ms: number) => {
     if (activeSource === null) return;
@@ -299,8 +406,10 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
       spotify.seek(ms);
     } else if (activeSource === 'soundcloud') {
       sc.seek(ms);
+    } else if (activeSource === 'applemusic') {
+      am.seek(ms);
     }
-  }, [activeSource, spotify, sc]);
+  }, [activeSource, spotify, sc, am]);
 
   const next = useCallback(() => {
     if (currentIndex === null) return;
@@ -373,25 +482,51 @@ export function PlaybackProvider({ children }: { children: React.ReactNode }) {
     });
   }, [sc]);
 
-  return (
-    <PlaybackContext.Provider value={{
+  // Apple Music: onTrackEnd event fired from the native module
+  useEffect(() => {
+    return am.subscribeTrackEnd(() => {
+      if (activeSourceRef.current !== 'applemusic') return;
+      nextRef.current();
+    });
+  }, [am]);
+
+  // Stable command facade: identities never change (they delegate to the
+  // latest implementations via a ref), so the memoized context value below
+  // only invalidates when actual playback *data* changes — never on the
+  // 500ms position tick.
+  const commandsImplRef = useRef({ playPlaylist, playTrack, pause, resume, next, previous, seek });
+  commandsImplRef.current = { playPlaylist, playTrack, pause, resume, next, previous, seek };
+  const commands = useRef({
+    playPlaylist: (tracks: PlaylistTrack[], startIndex?: number) =>
+      commandsImplRef.current.playPlaylist(tracks, startIndex),
+    playTrack: (index: number) => commandsImplRef.current.playTrack(index),
+    pause: () => commandsImplRef.current.pause(),
+    resume: () => commandsImplRef.current.resume(),
+    next: () => commandsImplRef.current.next(),
+    previous: () => commandsImplRef.current.previous(),
+    seek: (ms: number) => commandsImplRef.current.seek(ms),
+  }).current;
+
+  const value = useMemo<PlaybackContextValue>(
+    () => ({
       playlist,
       currentIndex,
       isPlaying,
-      positionMs: displayPositionMs,
+      isLoading,
       durationMs,
       artworkUrl,
       title,
       artist,
-      playPlaylist,
-      playTrack,
-      pause,
-      resume,
-      next,
-      previous,
-      seek,
-    }}>
-      {children}
+      ...commands,
+    }),
+    [playlist, currentIndex, isPlaying, isLoading, durationMs, artworkUrl, title, artist, commands],
+  );
+
+  return (
+    <PlaybackContext.Provider value={value}>
+      <PlaybackPositionContext.Provider value={displayPositionMs}>
+        {children}
+      </PlaybackPositionContext.Provider>
     </PlaybackContext.Provider>
   );
 }

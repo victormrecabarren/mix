@@ -34,6 +34,8 @@ function HeroVideoLayer({ source }: { source: number }) {
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
     p.muted = true;
+    p.volume = 0;
+    p.audioMixingMode = "mixWithOthers";
     p.play();
   });
   return (

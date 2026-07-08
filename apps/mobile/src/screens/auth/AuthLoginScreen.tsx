@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { useSession } from '@/context/SessionContext';
-import { signInWithSpotify, signInWithPassword } from '@/services/auth';
+import { useAppleMusicPlayer } from '@/playback/AppleMusicPlayer';
+import { signInWithSpotify, signInWithPassword, signInWithAppleMusic } from '@/services/auth';
 import { MixError } from '@/services/errors';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -15,6 +16,7 @@ export function AuthLoginScreen() {
   const tapCount = useRef(0);
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { refresh } = useSession();
+  const appleMusic = useAppleMusicPlayer();
 
   const handleTitleTap = () => {
     tapCount.current += 1;
@@ -30,6 +32,27 @@ export function AuthLoginScreen() {
     setLoading(true);
     try {
       await signInWithSpotify();
+      await refresh();
+    } catch (err) {
+      Alert.alert('Login failed', err instanceof MixError ? err.message : 'Something went wrong');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAppleMusicLogin = async () => {
+    setLoading(true);
+    try {
+      // 1. Sign in with Apple → Supabase session (identity).
+      await signInWithAppleMusic();
+      // 2. Request MusicKit authorization (playback). Separate Apple consent.
+      const status = await appleMusic.authorize();
+      if (status !== 'authorized') {
+        Alert.alert(
+          'Apple Music access needed',
+          'mix needs permission to play Apple Music. You can grant it later in Settings, but playback won\'t work until you do.',
+        );
+      }
       await refresh();
     } catch (err) {
       Alert.alert('Login failed', err instanceof MixError ? err.message : 'Something went wrong');
@@ -68,6 +91,20 @@ export function AuthLoginScreen() {
           <Text style={styles.buttonLabel}>Continue with Spotify</Text>
         )}
       </TouchableOpacity>
+
+      {Platform.OS === 'ios' && (
+        <TouchableOpacity
+          style={[styles.button, styles.appleButton, loading && styles.buttonBusy]}
+          onPress={handleAppleMusicLogin}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonLabel}>Continue with Apple Music</Text>
+          )}
+        </TouchableOpacity>
+      )}
 
       {devMode && (
         <View style={styles.devBox}>
@@ -126,6 +163,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  appleButton: { backgroundColor: '#fa233b' },
   buttonBusy: { opacity: 0.7 },
   buttonLabel: { color: '#fff', fontSize: 16, fontWeight: '600' },
   devBox: {

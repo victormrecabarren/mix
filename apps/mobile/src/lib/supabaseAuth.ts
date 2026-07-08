@@ -1,7 +1,9 @@
 import { supabase } from './supabase';
+import { auditMusicCredentials } from './musicCredentialAudit';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/auth-spotify`;
+const APPLE_MUSIC_EDGE_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/auth-apple-music`;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
 /**
@@ -17,6 +19,11 @@ const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
  * is set and RLS policies work for all subsequent queries.
  */
 export async function signInToSupabase(spotifyAccessToken: string): Promise<void> {
+  auditMusicCredentials("supabaseAuth.exchange.start", {
+    provider: "spotify",
+    hasSpotifyAccessToken: !!spotifyAccessToken,
+    appleMusicCredentialsUsed: false,
+  });
   const res = await fetch(EDGE_FUNCTION_URL, {
     method: 'POST',
     headers: {
@@ -39,6 +46,11 @@ export async function signInToSupabase(spotifyAccessToken: string): Promise<void
 
   const { error } = await supabase.auth.setSession({ access_token, refresh_token });
   if (error) throw new Error(`Failed to set Supabase session: ${error.message}`);
+  auditMusicCredentials("supabaseAuth.exchange.complete", {
+    provider: "spotify",
+    edgeFunction: "auth-spotify",
+    appleMusicCredentialsUsed: false,
+  });
 }
 
 /**
@@ -48,4 +60,47 @@ export async function signInToSupabase(spotifyAccessToken: string): Promise<void
 export async function hasSupabaseSession(): Promise<boolean> {
   const { data } = await supabase.auth.getSession();
   return data.session !== null;
+}
+
+/**
+ * Exchanges a "Sign in with Apple" identity token for a Supabase session.
+ * Calls the auth-apple-music Edge Function which verifies the token against
+ * Apple's JWKS, creates or retrieves the Supabase auth user, and returns a session.
+ */
+export async function signInToSupabaseWithAppleMusic(
+  identityToken: string,
+  displayName: string,
+): Promise<void> {
+  auditMusicCredentials("supabaseAuth.exchange.start", {
+    provider: "applemusic",
+    hasAppleIdentityToken: !!identityToken,
+    spotifyCredentialsUsed: false,
+  });
+  const res = await fetch(APPLE_MUSIC_EDGE_FUNCTION_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ identity_token: identityToken, display_name: displayName }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string; detail?: string };
+    const message = body.detail ?? body.error ?? `Auth failed (${res.status})`;
+    throw new Error(message);
+  }
+
+  const { access_token, refresh_token } = await res.json() as {
+    access_token: string;
+    refresh_token: string;
+  };
+
+  const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+  if (error) throw new Error(`Failed to set Supabase session: ${error.message}`);
+  auditMusicCredentials("supabaseAuth.exchange.complete", {
+    provider: "applemusic",
+    edgeFunction: "auth-apple-music",
+    spotifyCredentialsUsed: false,
+  });
 }

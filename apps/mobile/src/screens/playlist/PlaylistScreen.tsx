@@ -5,7 +5,7 @@
 // the winner gets a chrome ★, and tapping the comment icon expands an
 // accordion with all voter comments for that track.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActionSheetIOS,
   ActivityIndicator,
@@ -38,7 +38,9 @@ import { useRoundResults } from "@/queries/useRoundResults";
 import { useRoundVoters } from "@/queries/useRoundVoters";
 import { useLeague } from "@/queries/useLeague";
 import { usePlayback, type PlaylistTrack } from "@/playback/PlaybackContext";
-import { normalizeSpotifyTrackUri } from "@/lib/spotifyTrackUri";
+import { useSession } from "@/context/SessionContext";
+import { submissionToPlaylistTrack } from "@/lib/utils/submissionPlayback";
+import { auditMusicCredentials } from "@/lib/musicCredentialAudit";
 import { useTabBarBottomInset } from "@/ui/hooks/useTabBarBottomInset";
 import { THEME } from "@/ui/theme";
 import { Wallpaper } from "@/ui/Wallpaper";
@@ -64,9 +66,10 @@ type Submission = {
   track_title: string;
   track_artist: string;
   track_artwork_url: string | null;
-  track_source: "spotify" | "soundcloud";
+  track_source: "spotify" | "soundcloud" | "applemusic";
   spotify_track_id: string | null;
   soundcloud_track_url: string | null;
+  apple_music_id: string | null;
   track_isrc: string;
   comment: string | null;
   created_at?: string;
@@ -87,31 +90,6 @@ function pastelFor(id: string): string {
   return AVATAR_PASTELS[h % AVATAR_PASTELS.length];
 }
 
-function submissionToPlaylistTrack(s: Submission): PlaylistTrack | null {
-  if (s.track_source === "soundcloud" && s.soundcloud_track_url) {
-    return {
-      id: s.id,
-      source: "soundcloud",
-      uri: s.soundcloud_track_url,
-      title: s.track_title,
-      artist: s.track_artist,
-      artworkUrl: s.track_artwork_url ?? "",
-      durationMs: 0,
-    };
-  }
-  if (s.spotify_track_id) {
-    return {
-      id: s.id,
-      source: "spotify",
-      uri: normalizeSpotifyTrackUri(s.spotify_track_id),
-      title: s.track_title,
-      artist: s.track_artist,
-      artworkUrl: s.track_artwork_url ?? "",
-      durationMs: 0,
-    };
-  }
-  return null;
-}
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -132,6 +110,9 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
   const submissions = submissionsData as Submission[];
 
   const playback = usePlayback();
+  const { session } = useSession();
+  const listenerService =
+    session?.musicService === "applemusic" ? "applemusic" : "spotify";
 
   // Points map: submission id → points (effective, post-forfeit-void).
   const pointsBySub = useMemo(() => {
@@ -155,13 +136,42 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
   const orderedPlaylist: PlaylistTrack[] = useMemo(
     () =>
       submissions
-        .map(submissionToPlaylistTrack)
+        .map((s) => submissionToPlaylistTrack(s, listenerService))
         .filter((t): t is PlaylistTrack => t !== null),
-    [submissions],
+    [submissions, listenerService],
   );
+
+  useEffect(() => {
+    auditMusicCredentials("playback.playlistMapping.playlistScreen", {
+      loggedInMusicService: session?.musicService ?? null,
+      listenerService,
+      submissionCount: submissions.length,
+      playableCount: orderedPlaylist.length,
+      rows: submissions.map((s) => ({
+        submissionId: s.id,
+        submittedSource: s.track_source,
+        listenerService,
+        playbackSource:
+          s.track_source === "soundcloud" ? "soundcloud" : listenerService,
+        hasSpotifyTrackId: !!s.spotify_track_id,
+        hasAppleMusicId: !!s.apple_music_id,
+        hasSoundCloudUrl: !!s.soundcloud_track_url,
+        isPlayable: orderedPlaylist.some((t) => t.id === s.id),
+      })),
+    });
+  }, [listenerService, orderedPlaylist, session?.musicService, submissions]);
 
   const onPlay = () => {
     if (orderedPlaylist.length === 0) return;
+    auditMusicCredentials("playback.playlistStart.playlistScreen", {
+      loggedInMusicService: session?.musicService ?? null,
+      listenerService,
+      startIndex: 0,
+      trackCount: orderedPlaylist.length,
+      playbackSources: orderedPlaylist.map((t) => t.source),
+      spotifyCredentialsExpected: listenerService === "spotify",
+      appleMusicCredentialsExpected: listenerService === "applemusic",
+    });
     playback.playPlaylist(orderedPlaylist, 0);
   };
 
@@ -283,8 +293,46 @@ export function PlaylistScreen({ roundId }: { roundId: string }) {
                 isCurrentTrack={isCurrentTrack}
                 isPlaying={isCurrentTrack && playback.isPlaying}
                 onPress={() => {
-                  if (orderedPlaylist.length === 0) return;
-                  playback.playPlaylist(orderedPlaylist, idx);
+                  // Map the tapped submission to its index in the *filtered*
+                  // playable list. Using `idx` (the submissions index) is wrong
+                  // when any row was filtered out, and can land out of range →
+                  // startTrack silently no-ops.
+                  const targetIndex = orderedPlaylist.findIndex(
+                    (t) => t.id === sub.id,
+                  );
+                  console.log("[mix-debug] tap row", {
+                    subId: sub.id,
+                    title: sub.track_title,
+                    trackSource: sub.track_source,
+                    listenerService,
+                    musicService: session?.musicService,
+                    submissionsCount: submissions.length,
+                    playableCount: orderedPlaylist.length,
+                    targetIndex,
+                    apple_music_id: sub.apple_music_id,
+                    spotify_track_id: sub.spotify_track_id,
+                    soundcloud_track_url: sub.soundcloud_track_url,
+                  });
+                  if (targetIndex === -1) {
+                    console.log(
+                      "[mix-debug] not playable for this listener — filtered out",
+                      { subId: sub.id, trackSource: sub.track_source },
+                    );
+                    return;
+                  }
+                  auditMusicCredentials("playback.rowStart.playlistScreen", {
+                    loggedInMusicService: session?.musicService ?? null,
+                    listenerService,
+                    submittedSource: sub.track_source,
+                    playbackSource: orderedPlaylist[targetIndex]?.source,
+                    targetIndex,
+                    submissionId: sub.id,
+                    spotifyCredentialsExpected:
+                      orderedPlaylist[targetIndex]?.source === "spotify",
+                    appleMusicCredentialsExpected:
+                      orderedPlaylist[targetIndex]?.source === "applemusic",
+                  });
+                  playback.playPlaylist(orderedPlaylist, targetIndex);
                 }}
               />
             );

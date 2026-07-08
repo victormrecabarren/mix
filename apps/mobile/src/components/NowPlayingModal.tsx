@@ -16,7 +16,7 @@ import {
   Alert,
   Animated,
   Dimensions,
-  Image,
+  Easing,
   LayoutAnimation,
   PanResponder,
   Pressable,
@@ -27,6 +27,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   FastForward,
@@ -39,7 +40,8 @@ import {
   Plus,
   Rewind,
 } from 'lucide-react-native';
-import { usePlayback } from '@/playback/PlaybackContext';
+import { usePlayback, usePlaybackPosition } from '@/playback/PlaybackContext';
+import type { PlaylistTrack } from '@/playback/PlaybackContext';
 import { SwipeSheet } from '@/components/SwipeSheet';
 import { Wallpaper } from '@/ui/Wallpaper';
 import { ChromeBorder } from '@/ui/ChromeBorder';
@@ -80,15 +82,17 @@ function formatMs(ms: number) {
 
 // ─── SeekBar ──────────────────────────────────────────────────────────────────
 
+// Subscribes to the fast-ticking position context itself (rather than taking
+// positionMs as a prop) so the ~500ms playback tick re-renders only this
+// small leaf, keeping the JS thread free during sheet/art drags.
 function SeekBar({
-  positionMs,
   durationMs,
   onSeek,
 }: {
-  positionMs: number;
   durationMs: number;
   onSeek: (ms: number) => void;
 }) {
+  const positionMs = usePlaybackPosition();
   const [barWidth, setBarWidth] = useState(1);
   const [dragX, setDragX] = useState<number | null>(null);
 
@@ -488,10 +492,30 @@ const roundStyles = StyleSheet.create({
 });
 
 // ─── Album art swiper ──────────────────────────────────────────────────────────
+//
+// Paged carousel modeled on a continuous scroll position, like a horizontal
+// UIScrollView: page i lives at exactly i * SCREEN_W in a virtual row, and
+// `scrollX` is the viewport's pixel offset into that row. Only a window of
+// (at most) three pages around `displayIndex` is mounted, each absolutely
+// positioned at its fixed page offset with a stable per-track key.
+//
+// This shape makes the settle handoff atomic: committing a swipe only shifts
+// the mounted *window* (setDisplayIndex) — it never moves the viewport and
+// never remounts the visible panel. There is no "reset translateX to 0" step
+// racing React's async re-render, which was the source of the old
+// flash-of-previous-art bug. Track changes from any origin (swipe, transport
+// buttons, auto-advance) converge on the same animated slide: playback
+// `currentIndex` moves, and the reconcile effect glides `scrollX` to it.
+
+// A horizontal drag "locks" once it moves this far with |dx| > |dy|. Until
+// locked, moves are ignored (so a vertical sheet-dismiss drag over the art
+// never wiggles the carousel) and the sheet is allowed to steal the gesture.
+const H_LOCK_DX = 10;
+// Rubber-band factor when dragging past the first/last track.
+const EDGE_RESISTANCE = 0.25;
 
 function AlbumArtSwiper() {
-  const { currentIndex, playlist, artworkUrl, isPlaying, next, previous } = usePlayback();
-  const translateX = useRef(new Animated.Value(0)).current;
+  const { currentIndex, playlist, artworkUrl, isPlaying, isLoading, playTrack } = usePlayback();
 
   // A single `progress` value (0 = paused/small, 1 = playing/large) drives both
   // the scale and the shadow so they stay in step: the art "lifts" off the
@@ -502,15 +526,16 @@ function AlbumArtSwiper() {
   // stutter). Scale overshoots past 1 on grow for a slight spring; no
   // undershoot on shrink. The swiper window is `overflow: visible` so the grow
   // overshoot is never clipped.
-  const progress = useRef(new Animated.Value(isPlaying ? 1 : 0)).current;
+  const artExpanded = isPlaying || isLoading;
+  const progress = useRef(new Animated.Value(artExpanded ? 1 : 0)).current;
   useEffect(() => {
     Animated.spring(progress, {
-      toValue: isPlaying ? 1 : 0,
-      speed: isPlaying ? 4 : 6,
-      bounciness: isPlaying ? 13 : 0,
+      toValue: artExpanded ? 1 : 0,
+      speed: artExpanded ? 4 : 6,
+      bounciness: artExpanded ? 13 : 0,
       useNativeDriver: true,
     }).start();
-  }, [isPlaying, progress]);
+  }, [artExpanded, progress]);
 
   const scale = progress.interpolate({
     inputRange: [0, 1],
@@ -530,108 +555,234 @@ function AlbumArtSwiper() {
     }
   }, [artworkUrl, currentIndex, playlist]);
 
+  // ── Carousel state ──────────────────────────────────────────────────────────
+  // `displayIndex` = the page the carousel is visually resting on (owns the
+  // mounted window). It intentionally lags playback `currentIndex` while a
+  // slide is in flight; the reconcile effect below converges the two.
+  const [displayIndex, setDisplayIndex] = useState(() => currentIndex ?? 0);
+  const scrollX = useRef(new Animated.Value((currentIndex ?? 0) * SCREEN_W)).current;
+
+  const maxPage = Math.max(0, playlist.length - 1);
+  // Guard against a shrunken playlist leaving the window out of range.
+  const page = Math.min(displayIndex, maxPage);
+
   useEffect(() => {
-    if (currentIndex === null) return;
-    const neighbors = [
-      currentIndex > 0 ? playlist[currentIndex - 1] : null,
-      currentIndex < playlist.length - 1 ? playlist[currentIndex + 1] : null,
-    ];
+    const neighbors = [playlist[page - 1], playlist[page + 1]];
     for (const track of neighbors) {
       if (!track) continue;
       const url = artCache.current.get(track.id) || track.artworkUrl;
-      if (url) void Image.prefetch(url);
+      if (url) void ExpoImage.prefetch(url);
     }
-  }, [currentIndex, playlist]);
+  }, [page, playlist]);
 
-  const getArtUrl = (index: number): string => {
-    if (index < 0 || index >= playlist.length) return '';
-    const track = playlist[index];
-    return artCache.current.get(track.id) || track.artworkUrl || '';
+  // Mirror everything the (created-once) PanResponder needs into refs.
+  const scrollXValueRef = useRef((currentIndex ?? 0) * SCREEN_W);
+  useEffect(() => {
+    const id = scrollX.addListener(({ value }) => {
+      scrollXValueRef.current = value;
+    });
+    return () => scrollX.removeListener(id);
+  }, [scrollX]);
+
+  const playbackIndexRef = useRef(currentIndex);
+  playbackIndexRef.current = currentIndex;
+  const maxPageRef = useRef(maxPage);
+  maxPageRef.current = maxPage;
+  const playTrackRef = useRef(playTrack);
+  playTrackRef.current = playTrack;
+
+  const draggingRef = useRef(false);
+  const settlingRef = useRef(false);
+  const horizontalLockRef = useRef(false);
+  const lockDxRef = useRef(0);
+  const grantScrollRef = useRef(0);
+  const grantPageRef = useRef(0);
+
+  // Glide the viewport to a page, then (only once it has landed) shift the
+  // mounted window. The landing panel is already on screen at its final
+  // position, so the setDisplayIndex commit changes zero visible pixels —
+  // whatever frame React lands on.
+  const settleTo = useCallback(
+    (target: number, duration: number) => {
+      settlingRef.current = true;
+      Animated.timing(scrollX, {
+        toValue: target * SCREEN_W,
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        settlingRef.current = false;
+        if (finished) setDisplayIndex(target);
+      });
+    },
+    [scrollX],
+  );
+  const settleToRef = useRef(settleTo);
+  settleToRef.current = settleTo;
+
+  // Reconcile: playback moved (transport buttons, auto-advance on track end,
+  // a new playlist) and the user isn't mid-gesture → slide to it. Adjacent
+  // moves animate exactly like a swipe; anything else snaps.
+  const playlistIdentityRef = useRef(playlist);
+  useEffect(() => {
+    const playlistChanged = playlistIdentityRef.current !== playlist;
+    playlistIdentityRef.current = playlist;
+    if (currentIndex === null) return;
+    if (draggingRef.current || settlingRef.current) return;
+    if (currentIndex === page && !playlistChanged) return;
+    if (playlistChanged || Math.abs(currentIndex - page) !== 1) {
+      scrollX.setValue(currentIndex * SCREEN_W);
+      setDisplayIndex(currentIndex);
+      return;
+    }
+    settleToRef.current(currentIndex, 300);
+  }, [currentIndex, page, playlist, scrollX]);
+
+  const settleToNearest = () => {
+    const nearest = Math.min(
+      Math.max(Math.round(scrollXValueRef.current / SCREEN_W), 0),
+      maxPageRef.current,
+    );
+    settleToRef.current(nearest, 200);
   };
-
-  const hasNextRef = useRef(false);
-  const hasPrevRef = useRef(false);
-  const nextFnRef = useRef(next);
-  const prevFnRef = useRef(previous);
-  hasNextRef.current = currentIndex !== null && currentIndex < playlist.length - 1;
-  hasPrevRef.current = currentIndex !== null && currentIndex > 0;
-  nextFnRef.current = next;
-  prevFnRef.current = previous;
-
-  const prevArt = hasPrevRef.current && currentIndex !== null ? getArtUrl(currentIndex - 1) : '';
-  const currentArt = (currentIndex !== null ? getArtUrl(currentIndex) : '') || artworkUrl || '';
-  const nextArt = hasNextRef.current && currentIndex !== null ? getArtUrl(currentIndex + 1) : '';
+  const settleToNearestRef = useRef(settleToNearest);
+  settleToNearestRef.current = settleToNearest;
 
   const panResponder = useRef(
     PanResponder.create({
+      // Claim on touch-down so this (deeper) view wins the start negotiation
+      // over the sheet; the sheet can still steal clearly-vertical drags via
+      // its move-capture + our termination policy below.
       onStartShouldSetPanResponder: () => true,
       onStartShouldSetPanResponderCapture: () => false,
-      onPanResponderTerminationRequest: () => true,
-      onPanResponderMove: (_, { dx }) => {
-        const blocked = dx < 0 ? !hasNextRef.current : !hasPrevRef.current;
-        translateX.setValue(blocked ? dx * 0.15 : dx);
+      // Yield to the sheet's vertical steal only while the gesture hasn't
+      // committed to horizontal. Once locked, refuse — a wobbly horizontal
+      // swipe must never get yanked into a sheet dismiss mid-drag (this was
+      // the "swipe sometimes does nothing" bug).
+      onPanResponderTerminationRequest: () => !horizontalLockRef.current,
+      onPanResponderGrant: () => {
+        draggingRef.current = true;
+        horizontalLockRef.current = false;
+        lockDxRef.current = 0;
+        // Grab a mid-flight settle right where it is.
+        scrollX.stopAnimation();
+        grantScrollRef.current = scrollXValueRef.current;
+        grantPageRef.current = Math.min(
+          Math.max(Math.round(scrollXValueRef.current / SCREEN_W), 0),
+          maxPageRef.current,
+        );
+      },
+      onPanResponderMove: (_, { dx, dy }) => {
+        if (!horizontalLockRef.current) {
+          if (Math.abs(dx) > H_LOCK_DX && Math.abs(dx) > Math.abs(dy)) {
+            horizontalLockRef.current = true;
+            lockDxRef.current = dx; // start the drag from here, no 10px jump
+          } else {
+            return; // undecided or vertical — leave the carousel alone
+          }
+        }
+        const raw = grantScrollRef.current - (dx - lockDxRef.current);
+        const max = maxPageRef.current * SCREEN_W;
+        const bounded =
+          raw < 0
+            ? raw * EDGE_RESISTANCE
+            : raw > max
+              ? max + (raw - max) * EDGE_RESISTANCE
+              : raw;
+        scrollX.setValue(bounded);
       },
       onPanResponderRelease: (_, { dx, vx }) => {
-        const THRESHOLD = SCREEN_W * 0.3;
-        if ((dx < -THRESHOLD || vx < -0.6) && hasNextRef.current) {
-          const dur = Math.max(100, Math.min(250, (SCREEN_W - Math.abs(dx)) / Math.max(Math.abs(vx), 0.3)));
-          Animated.timing(translateX, { toValue: -SCREEN_W, duration: dur, useNativeDriver: true })
-            .start(({ finished }) => {
-              if (!finished) return;
-              nextFnRef.current();
-              translateX.setValue(0);
-            });
-        } else if ((dx > THRESHOLD || vx > 0.6) && hasPrevRef.current) {
-          const dur = Math.max(100, Math.min(250, (SCREEN_W - Math.abs(dx)) / Math.max(Math.abs(vx), 0.3)));
-          Animated.timing(translateX, { toValue: SCREEN_W, duration: dur, useNativeDriver: true })
-            .start(({ finished }) => {
-              if (!finished) return;
-              prevFnRef.current();
-              translateX.setValue(0);
-            });
-        } else {
-          Animated.spring(translateX, { toValue: 0, damping: 25, stiffness: 300, useNativeDriver: true }).start();
+        draggingRef.current = false;
+        if (!horizontalLockRef.current) {
+          settleToNearestRef.current();
+          return;
         }
+        horizontalLockRef.current = false;
+        const grantPage = grantPageRef.current;
+        const position = grantScrollRef.current - (dx - lockDxRef.current);
+        // Position decides; a decisive flick overrides. One page per gesture,
+        // like UIScrollView paging.
+        let target = Math.round(position / SCREEN_W);
+        if (vx <= -0.5) target = grantPage + 1;
+        else if (vx >= 0.5) target = grantPage - 1;
+        target = Math.min(
+          Math.max(target, grantPage - 1, 0),
+          grantPage + 1,
+          maxPageRef.current,
+        );
+        // Start audio at commit (not after the slide) so the track change
+        // feels immediate. A swipe back always goes to the previous *track* —
+        // deliberately not previous()'s restart-from-0 button semantics.
+        if (target !== playbackIndexRef.current) playTrackRef.current(target);
+        const distance = Math.abs(target * SCREEN_W - position);
+        const duration = Math.max(120, Math.min(280, distance / Math.max(Math.abs(vx), 0.6)));
+        settleToRef.current(target, duration);
       },
       onPanResponderTerminate: () => {
-        Animated.spring(translateX, { toValue: 0, damping: 25, stiffness: 300, useNativeDriver: true }).start();
+        draggingRef.current = false;
+        horizontalLockRef.current = false;
+        settleToNearestRef.current();
       },
     }),
   ).current;
 
-  const renderArt = (url: string, key: string) => (
-    <View key={key} style={artSwiperStyles.panel}>
-      <Animated.View style={[artSwiperStyles.artScaleWrap, { transform: [{ scale }] }]}>
-        {/* Separate shadow plate behind the art — its opacity cross-fades on
-            the native driver (smooth) so the shadow only shows once lifted. */}
-        <Animated.View
-          style={[artSwiperStyles.artShadowPlate, { opacity: shadowFade }]}
-          pointerEvents="none"
-        />
-        <View style={artSwiperStyles.artFrame}>
-          {url ? (
-            <Image source={{ uri: url }} style={artSwiperStyles.art} />
-          ) : (
-            <View style={[artSwiperStyles.art, artSwiperStyles.placeholder]}>
-              <ChromeText glyph="♪" size={72} />
-            </View>
-          )}
-        </View>
-      </Animated.View>
-    </View>
-  );
+  const renderPanel = (index: number, track: PlaylistTrack | null) => {
+    const url = track
+      ? artCache.current.get(track.id) ||
+        track.artworkUrl ||
+        (index === currentIndex ? artworkUrl : '')
+      : '';
+    return (
+      <View
+        key={track ? `art-${track.id}` : 'art-empty'}
+        style={[artSwiperStyles.panel, { left: index * SCREEN_W }]}
+      >
+        <Animated.View style={[artSwiperStyles.artScaleWrap, { transform: [{ scale }] }]}>
+          {/* Separate shadow plate behind the art — its opacity cross-fades on
+              the native driver (smooth) so the shadow only shows once lifted. */}
+          <Animated.View
+            style={[artSwiperStyles.artShadowPlate, { opacity: shadowFade }]}
+            pointerEvents="none"
+          />
+          <View style={artSwiperStyles.artFrame}>
+            {url ? (
+              <ExpoImage
+                source={{ uri: url }}
+                style={artSwiperStyles.art}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={0}
+              />
+            ) : (
+              <View style={[artSwiperStyles.art, artSwiperStyles.placeholder]}>
+                <ChromeText glyph="♪" size={72} />
+              </View>
+            )}
+          </View>
+        </Animated.View>
+      </View>
+    );
+  };
+
+  const pages: number[] = [];
+  for (let i = Math.max(0, page - 1); i <= Math.min(maxPage, page + 1); i++) {
+    pages.push(i);
+  }
 
   return (
     <View style={artSwiperStyles.window} {...panResponder.panHandlers}>
       <Animated.View
         style={[
           artSwiperStyles.row,
-          { transform: [{ translateX: Animated.add(translateX, new Animated.Value(-SCREEN_W)) }] },
+          {
+            width: Math.max(playlist.length, 1) * SCREEN_W,
+            transform: [{ translateX: Animated.multiply(scrollX, -1) }],
+          },
         ]}
       >
-        {renderArt(prevArt, 'prev')}
-        {renderArt(currentArt, 'current')}
-        {renderArt(nextArt, 'next')}
+        {playlist.length === 0
+          ? renderPanel(0, null)
+          : pages.map((i) => renderPanel(i, playlist[i]))}
       </Animated.View>
     </View>
   );
@@ -642,8 +793,18 @@ const artSwiperStyles = StyleSheet.create({
   // The off-screen prev/next panels sit exactly one screen-width away, so the
   // device edge clips them — no neighbour peeking at rest.
   window: { width: SCREEN_W, overflow: 'visible' },
-  row: { flexDirection: 'row', width: SCREEN_W * 3 },
-  panel: { width: SCREEN_W, alignItems: 'center', justifyContent: 'center' },
+  // Virtual row of pages; width is set inline (playlist length × screen).
+  // Panels are absolutely positioned at their page offset, so the row needs
+  // an explicit height.
+  row: { height: ART_LARGE },
+  panel: {
+    position: 'absolute',
+    top: 0,
+    width: SCREEN_W,
+    height: ART_LARGE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   artScaleWrap: {
     width: ART_LARGE,
     height: ART_LARGE,
@@ -963,7 +1124,7 @@ export function NowPlayingContent({ onClose }: { onClose?: () => void }) {
   const insets = useSafeAreaInsets();
   const {
     currentIndex, playlist,
-    isPlaying, positionMs, durationMs, title, artist,
+    isPlaying, durationMs, title, artist,
     pause, resume, seek, next, previous,
   } = usePlayback();
 
@@ -1074,7 +1235,7 @@ export function NowPlayingContent({ onClose }: { onClose?: () => void }) {
               hasNext={hasNext}
             />
 
-            <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
+            <SeekBar durationMs={durationMs} onSeek={seek} />
           </View>
 
           {completed ? (
@@ -1107,6 +1268,10 @@ export function NowPlayingModal({ visible, onClose }: { visible: boolean; onClos
       dismissVelocityThreshold={0.5}
       backgroundColor={WASH_BASE}
       backdropColor="rgba(26,8,20,0.4)"
+      // Continuous-curve rounded top corners (Apple sheet style). At rest they
+      // tuck into the device's own display corners; they become visible the
+      // moment the sheet is dragged down, like Apple Music's now-playing card.
+      sheetStyle={sheetCorners}
       // Hide the built-in handle strip so the iridescent wash can cover the
       // full sheet edge-to-edge (the strip would otherwise sit on the flat
       // sheet background, leaving a seam where the wash blooms begin). We
@@ -1117,6 +1282,13 @@ export function NowPlayingModal({ visible, onClose }: { visible: boolean; onClos
     </SwipeSheet>
   );
 }
+
+const sheetCorners = {
+  borderTopLeftRadius: 40,
+  borderTopRightRadius: 40,
+  borderCurve: 'continuous',
+  overflow: 'hidden',
+} as const;
 
 const modalStyles = StyleSheet.create({
   topBar: {

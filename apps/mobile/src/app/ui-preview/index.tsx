@@ -30,7 +30,8 @@ import { PlaylistRail } from "@/ui/cards/PlaylistRail";
 // ── Placeholder fixtures (mirror playlist-shared.jsx) ────────────────
 
 const ACTIVE = {
-  prompt: "A song that sounds like summer ending",
+  prompt: "summer ending",
+  description: "The last warm weekend, the last festival set, the last song before school started — pick the track that captures that specific ache.",
   descriptor: "Round 05 · Winter Season",
   phase: "Voting closes in 1d 11h",
   imageKey: "disco-balloon" as ImageKey,
@@ -40,6 +41,7 @@ const ACTIVE = {
 const PLAYLISTS: Array<{
   id: string;
   prompt: string;
+  description: string;
   season: string;
   n: number;
   tracks: number;
@@ -47,7 +49,8 @@ const PLAYLISTS: Array<{
 }> = [
   {
     id: "p1",
-    prompt: "Music for reading in bed",
+    prompt: "reading in bed",
+    description: "That slow, late-night quiet. Pick the track you'd put on while you disappear into a book.",
     season: "Winter",
     n: 4,
     tracks: 12,
@@ -55,7 +58,8 @@ const PLAYLISTS: Array<{
   },
   {
     id: "p2",
-    prompt: "Song you loved at 14",
+    prompt: "being 14",
+    description: "The song that defined a specific, embarrassing, formative era. No judgment — we've all been there.",
     season: "Winter",
     n: 3,
     tracks: 12,
@@ -63,7 +67,8 @@ const PLAYLISTS: Array<{
   },
   {
     id: "p3",
-    prompt: "Music your parents hate",
+    prompt: "your parents hate it",
+    description: "The track that got the aux cord yanked, the volume turned down, or earned you a look. Own it.",
     season: "Winter",
     n: 2,
     tracks: 12,
@@ -71,7 +76,8 @@ const PLAYLISTS: Array<{
   },
   {
     id: "p4",
-    prompt: "A song for a long drive",
+    prompt: "a long drive",
+    description: "Windows down, no destination. Pick the song that makes three hours disappear.",
     season: "Winter",
     n: 1,
     tracks: 12,
@@ -79,7 +85,8 @@ const PLAYLISTS: Array<{
   },
   {
     id: "p5",
-    prompt: "Best 2000s one-hit wonder",
+    prompt: "a one-hit wonder",
+    description: "One song. One moment. Gone forever. Pick the track that deserved more than it got.",
     season: "First",
     n: 8,
     tracks: 12,
@@ -87,7 +94,8 @@ const PLAYLISTS: Array<{
   },
   {
     id: "p6",
-    prompt: "A song that makes you feel seen",
+    prompt: "being understood",
+    description: "That rare song where someone got it exactly right — the feeling you couldn't put into words.",
     season: "First",
     n: 7,
     tracks: 12,
@@ -95,7 +103,8 @@ const PLAYLISTS: Array<{
   },
   {
     id: "p7",
-    prompt: "Best song about a city",
+    prompt: "a city at night",
+    description: "Streetlights, late trains, empty streets. Pick the track that scores that particular atmosphere.",
     season: "First",
     n: 6,
     tracks: 12,
@@ -103,7 +112,8 @@ const PLAYLISTS: Array<{
   },
   {
     id: "p8",
-    prompt: "A song you would play at your wedding",
+    prompt: "a first dance",
+    description: "The song you'd pick for the moment everyone's watching. Make it count.",
     season: "First",
     n: 5,
     tracks: 12,
@@ -213,8 +223,7 @@ export default function V1ArchiveHome() {
                 subtitle: ACTIVE.descriptor,
                 meta: ACTIVE.phase,
                 imageKey: ACTIVE.imageKey,
-                description:
-                  "Round 05 of Winter Season. Twelve anonymous picks are in — your allocation decides who wins the round and who sits out of the next one. Voting closes in 1d 11h.",
+                description: ACTIVE.description,
               })
             }
           />
@@ -240,8 +249,7 @@ export default function V1ArchiveHome() {
                     subtitle,
                     meta: `${p.tracks} picks · wrapped`,
                     imageKey: p.imageKey,
-                    description:
-                      "A completed round from your league. Tap play to hear every submitter's pick in order, or shuffle for a blind re-listen.",
+                    description: p.description,
                   }),
               };
             })}

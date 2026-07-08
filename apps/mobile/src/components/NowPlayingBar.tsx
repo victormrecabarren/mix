@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { usePlayback } from '@/playback/PlaybackContext';
+import { usePlayback, usePlaybackPosition } from '@/playback/PlaybackContext';
 import { SwipeSheet } from '@/components/SwipeSheet';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -25,15 +25,16 @@ function formatMs(ms: number) {
 
 // ─── SeekBar ──────────────────────────────────────────────────────────────────
 
+// Reads the fast-ticking position context itself so the ~500ms playback tick
+// re-renders only this leaf (see PlaybackPositionContext).
 function SeekBar({
-  positionMs,
   durationMs,
   onSeek,
 }: {
-  positionMs: number;
   durationMs: number;
   onSeek: (ms: number) => void;
 }) {
+  const positionMs = usePlaybackPosition();
   const [barWidth, setBarWidth] = useState(1);
   const progress = durationMs > 0 ? Math.min(positionMs / durationMs, 1) : 0;
   const fillWidth = progress * barWidth;
@@ -272,7 +273,7 @@ function NowPlayingModal({ visible, onClose }: { visible: boolean; onClose: () =
   const insets = useSafeAreaInsets();
   const {
     currentIndex, playlist,
-    isPlaying, positionMs, durationMs, artworkUrl, title, artist,
+    isPlaying, durationMs, artworkUrl, title, artist,
     pause, resume, seek, next, previous,
   } = usePlayback();
 
@@ -302,7 +303,7 @@ function NowPlayingModal({ visible, onClose }: { visible: boolean; onClose: () =
 
             <AlbumArtSwiper />
 
-            <SeekBar positionMs={positionMs} durationMs={durationMs} onSeek={seek} />
+            <SeekBar durationMs={durationMs} onSeek={seek} />
 
             <View style={modalStyles.controls}>
               <ControlBtn label="⏮" onPress={previous} disabled={!hasPrevious} />

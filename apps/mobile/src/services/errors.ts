@@ -134,7 +134,9 @@ export function postgresToMixError(err: { message?: string | null } | null | und
   // typed error.
   if (
     msg.includes("unique_track_per_round") ||
+    msg.includes("submissions_unique_music_isrc_per_round") ||
     msg.includes("submissions_unique_spotify_isrc_per_round") ||
+    msg.includes("submissions_unique_applemusic_id_per_round") ||
     msg.includes("submissions_unique_soundcloud_url_per_round")
   ) {
     return new DuplicateTrackError(err);

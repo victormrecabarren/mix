@@ -29,6 +29,7 @@ import {
   useSpotifyPlayer,
 } from "@/playback/SpotifyWebPlayer";
 import { SoundCloudPlayerProvider } from "@/playback/SoundCloudWebPlayer";
+import { AppleMusicPlayerProvider } from "@/playback/AppleMusicPlayer";
 import { PlaybackProvider } from "@/playback/PlaybackContext";
 import { getValidAccessToken } from "@/lib/spotifyAuth";
 
@@ -104,6 +105,7 @@ export default function RootLayout() {
       <SessionProvider>
         <SpotifyPlayerProvider>
           <SoundCloudPlayerProvider>
+            <AppleMusicPlayerProvider>
             <PlaybackProvider>
               <LeagueProvider>
                 <VotingDraftProvider>
@@ -117,7 +119,10 @@ export default function RootLayout() {
                       name="now-playing"
                       options={{
                         animation: "default",
-                        gestureEnabled: true,
+                        // Album art owns horizontal swipes for prev/next.
+                        // Leaving the native back-swipe enabled lets the same
+                        // rightward drag also pop this route.
+                        gestureEnabled: false,
                       }}
                     />
                     <Stack.Screen name="auth/callback" />
@@ -129,6 +134,7 @@ export default function RootLayout() {
                 </VotingDraftProvider>
               </LeagueProvider>
             </PlaybackProvider>
+            </AppleMusicPlayerProvider>
           </SoundCloudPlayerProvider>
         </SpotifyPlayerProvider>
       </SessionProvider>

@@ -26,8 +26,8 @@
 //     --vote-close  seconds until voting closes
 //
 //   node scripts/test.mjs submit --player <A-E> --round <id>
-//     Fetch genre-matched Spotify recommendations and submit tracks.
-//     A=hip-hop  B=rock  C=pop  D=electronic  E=jazz
+//     Submit the player's hardcoded fixture tracks (FIXTURE_TRACKS).
+//     Every field including apple_music_id is baked in — no external lookups.
 //
 //   node scripts/test.mjs vote --player <A-E> --round <id>
 //     Distribute points randomly and leave a comment.
@@ -47,6 +47,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const ENV_PATH  = join(__dir, '.env.test');
@@ -78,6 +79,135 @@ const COMMENTS = {
 
 const DEFAULT_GENRE = 'pop';
 
+// ─── Hardcoded fixture tracks ─────────────────────────────────────────────────
+//
+// Each stock player (A–E) submits from a fixed pool. `submit` takes the first N
+// tracks from the player's pool, where N = round's submissions_per_user.
+//
+// PASTE REAL IDS HERE. Every field must correspond to a real track — if the
+// IDs don't match, Apple Music will play whatever it thinks the appleMusicId
+// points to (which will look nothing like the artwork/title/artist shown).
+//
+// How to fill each field:
+//   spotifyTrackId  Spotify → Share → Copy Song Link → last URL segment
+//   appleMusicId    Apple Music → Share → Copy Link → ?i=<this>
+//   isrc            Spotify Web API `/v1/tracks/{id}` → external_ids.isrc
+//                   or use songwhip.com and paste the Spotify URL
+//   artworkUrl      Any square album art URL (the app renders it as-is)
+//   durationMs      Track length in milliseconds
+//
+// Format template (Frank Ocean — Nights, verified working example):
+//   {
+//     spotifyTrackId: '7eqoqGkKwgOaWNNHx90uEZ',
+//     appleMusicId:   '1146195720',
+//     isrc:           'QZ5C81600009',
+//     title:          'Nights',
+//     artist:         'Frank Ocean',
+//     albumName:      'Blonde',
+//     artworkUrl:     'https://i.scdn.co/image/ab67616d0000b273c5649add07ed3720be9d5526',
+//     durationMs:     307151,
+//   }
+const FIXTURE_TRACKS = {
+  A: [
+    // Frank Ocean — Nights (verified: spotifyId + appleMusicId + isrc from real data)
+    {
+      spotifyTrackId: '7eqoqGkKwgOaWNNHx90uEZ',
+      appleMusicId: '1146195720',
+      isrc: 'QZ5C81600009',
+      title: 'Nights',
+      artist: 'Frank Ocean',
+      albumName: 'Blonde',
+      artworkUrl: 'https://i.scdn.co/image/ab67616d0000b273c5649add07ed3720be9d5526',
+      durationMs: 307151,
+    },
+  ],
+  B: [
+    // Kendrick Lamar — Alright (spotifyId + appleMusicId verified via oembed / iTunes lookup;
+    // ISRC synthesized — unique per fixture, unused by playback)
+    {
+      spotifyTrackId: '3iVcZ5G6tvkXZkZKlMpIUs',
+      appleMusicId: '1440871886',
+      isrc: 'USTST2600002',
+      title: 'Alright',
+      artist: 'Kendrick Lamar',
+      albumName: 'To Pimp a Butterfly',
+      artworkUrl: 'https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/b5/a6/91/b5a69171-5232-3d5b-9c15-8963802f83dd/15UMGIM15814.rgb.jpg/600x600bb.jpg',
+      durationMs: 219337,
+    },
+  ],
+  C: [
+    // Fleetwood Mac — Dreams (2004 Remaster on Spotify, same song on Apple Music)
+    {
+      spotifyTrackId: '0ofHAoxe9vBkTCp2UQIavz',
+      appleMusicId: '594061856',
+      isrc: 'USTST2600003',
+      title: 'Dreams',
+      artist: 'Fleetwood Mac',
+      albumName: 'Rumours',
+      artworkUrl: 'https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/4d/13/ba/4d13bac3-d3d5-7581-2c74-034219eadf2b/081227970949.jpg/600x600bb.jpg',
+      durationMs: 257800,
+    },
+  ],
+  D: [
+    // Amy Winehouse — Back to Black
+    {
+      spotifyTrackId: '30FURVTCpbKyykjSEQzGkH',
+      appleMusicId: '1440856228',
+      isrc: 'USTST2600004',
+      title: 'Back to Black',
+      artist: 'Amy Winehouse',
+      albumName: 'Back to Black',
+      artworkUrl: 'https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/cf/3f/09/cf3f0994-980d-d8ed-088d-ae89af256b73/15UMGIM24224.rgb.jpg/600x600bb.jpg',
+      durationMs: 241293,
+    },
+  ],
+  E: [
+    // Daft Punk — Get Lucky (feat. Pharrell Williams and Nile Rodgers)
+    {
+      spotifyTrackId: '3fDDsZoNKTvm2zj6gmfD2H',
+      appleMusicId: '617154366',
+      isrc: 'USTST2600005',
+      title: 'Get Lucky',
+      artist: 'Daft Punk, Pharrell Williams, Nile Rodgers',
+      albumName: 'Random Access Memories',
+      artworkUrl: 'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/e8/43/5f/e8435ffa-b6b9-b171-40ab-4ff3959ab661/886443919266.jpg/600x600bb.jpg',
+      durationMs: 369629,
+    },
+  ],
+};
+
+// ─── Known real users (hardcoded IDs) ────────────────────────────────────────
+
+const KNOWN_USERS = {
+  victor: { id: '10429dd2-c524-487e-a0ab-b5c7d8a7aa16', name: 'Victor' },
+  andrea: { id: '85676018-2dc1-42a0-a5d7-befb37f83fb8', name: 'Andrea' }
+  // john: add via `register-player --name john --id <uuid>` then it resolves from state
+};
+
+// Players always added to every seeded league.
+// E is a spectator (can view but doesn't submit or vote).
+const FIXTURE_PLAYERS = [
+  { key: 'A', id: 'bb6d5f68-1937-4df7-864b-08cc89c48957', role: 'participant' },
+  { key: 'B', id: '356997da-bd00-46a6-9c1a-2d82da06af28', role: 'participant' },
+  { key: 'C', id: '24f3d556-5dec-4b6e-9255-1000c0839c57', role: 'participant' },
+  { key: 'D', id: '0287b775-c461-4357-aadc-849a088d0a8c', role: 'participant' },
+  { key: 'E', id: 'b3dadc59-fcdb-4bd8-907b-66a644c46f99', role: 'spectator' },
+];
+
+// Prompts are shown in the UI as "sounds like: <prompt>" — keep them ≤20 chars.
+const ROUND_FIXTURES = [
+  { prompt: 'a long drive',        description: 'Windows down, no destination. Pick the song that makes three hours disappear.' },
+  { prompt: 'summer ending',       description: 'The last warm weekend, the last festival set — pick the track that captures that specific ache.' },
+  { prompt: 'being 14',            description: 'The song that defined a specific, embarrassing, formative era. No judgment — we\'ve all been there.' },
+  { prompt: 'a city at night',     description: 'Streetlights, late trains, empty streets. Pick the track that scores that particular atmosphere.' },
+  { prompt: 'reading in bed',      description: 'That slow, late-night quiet. Pick the track you\'d put on while you disappear into a book.' },
+  { prompt: 'being understood',    description: 'That rare song where someone got it exactly right — the feeling you couldn\'t put into words.' },
+  { prompt: 'a one-hit wonder',    description: 'One song. One moment. Gone forever. Pick the track that deserved more than it got.' },
+  { prompt: 'a first dance',       description: 'The song you\'d pick for the moment everyone\'s watching. Make it count.' },
+  { prompt: 'your parents hate it',description: 'The track that got the aux cord yanked or earned you a look. Own it.' },
+  { prompt: 'growing up too fast', description: 'A song that captures the strange weight of moving on before you were ready.' },
+];
+
 // ─── Env + state ─────────────────────────────────────────────────────────────
 
 function loadEnv() {
@@ -90,7 +220,7 @@ function loadEnv() {
     const m = line.match(/^([^#=\s][^=]*)=(.*)/);
     if (m) env[m[1].trim()] = m[2].trim();
   }
-  for (const key of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET']) {
+  for (const key of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) {
     if (!env[key]) { console.error(`Missing ${key} in .env.test`); process.exit(1); }
   }
   return env;
@@ -144,44 +274,17 @@ async function sb(env, path, method = 'GET', body = null, extraHeaders = {}) {
   return { ok: res.ok, status: res.status, data };
 }
 
-// ─── Spotify ──────────────────────────────────────────────────────────────────
-
-async function spotifyToken(env) {
-  const res = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=client_credentials&client_id=${env.SPOTIFY_CLIENT_ID}&client_secret=${env.SPOTIFY_CLIENT_SECRET}`,
-  });
-  const data = await res.json();
-  if (!data.access_token) throw new Error(`Spotify auth failed: ${JSON.stringify(data)}`);
-  return data.access_token;
-}
-
-async function recommendedTracks(token, genre, limit) {
-  // /v1/recommendations was deprecated for new apps in 2024 — use search instead
-  const res = await fetch(
-    `https://api.spotify.com/v1/search?q=${encodeURIComponent(genre)}&type=track&limit=10`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { throw new Error(`Spotify search non-JSON (${res.status}): ${text.slice(0, 200)}`); }
-  if (!res.ok) throw new Error(`Spotify search error (${res.status}): ${JSON.stringify(data)}`);
-  const tracks = data.tracks?.items ?? [];
-  // Shuffle so each fake player gets different tracks
-  return tracks.sort(() => Math.random() - 0.5).slice(0, limit);
-}
-
 // ─── Point distribution ───────────────────────────────────────────────────────
 
+// Deterministic: fill submissions in order, giving each up to maxPerTrack until
+// total is exhausted. Same voter + same round layout = same vote every time.
 function distributePoints(total, count, maxPerTrack) {
   const pts = new Array(count).fill(0);
   let remaining = total;
-  let guard = 0;
-  while (remaining > 0 && guard < 50000) {
-    const i = Math.floor(Math.random() * count);
-    if (pts[i] < maxPerTrack) { pts[i]++; remaining--; }
-    guard++;
+  for (let i = 0; i < count && remaining > 0; i++) {
+    const give = Math.min(maxPerTrack, remaining);
+    pts[i] = give;
+    remaining -= give;
   }
   return pts;
 }
@@ -262,6 +365,147 @@ async function setupPlayers(env, args) {
   console.log('\n✓ Done. Player IDs saved to scripts/.test-state.json');
 }
 
+// ─── Seed league ──────────────────────────────────────────────────────────────
+
+async function addMember(env, leagueId, userId, role) {
+  const res = await sb(
+    env,
+    '/rest/v1/league_members',
+    'POST',
+    { league_id: leagueId, user_id: userId, role },
+    { Prefer: 'resolution=ignore-duplicates,return=representation' },
+  );
+  if (!res.ok && res.status !== 409) {
+    console.warn(`  Warning: could not add member ${userId} (${role}):`, JSON.stringify(res.data));
+  }
+}
+
+// seed-league: create a fresh league + season + N rounds in one command.
+// Round 1 is immediately live for submissions; rounds 2–N have staggered
+// future deadlines (2 weeks each, back-to-back).
+//
+// Usage:
+//   node scripts/test.mjs seed-league --commissioner victor
+//   node scripts/test.mjs seed-league --commissioner andrea
+//   node scripts/test.mjs seed-league --commissioner <uuid>
+//   node scripts/test.mjs seed-league --commissioner victor --name "Summer Jams" --rounds 5
+async function seedLeague(env, args) {
+  const commissionerArg = args.commissioner?.toLowerCase();
+  if (!commissionerArg) {
+    console.error('Usage: seed-league --commissioner <victor|andrea|uuid> [--name <league-name>] [--rounds <n>]');
+    process.exit(1);
+  }
+
+  // Resolve commissioner: hardcoded map → state → bare UUID
+  let commissionerId;
+  let commissionerLabel;
+  if (KNOWN_USERS[commissionerArg]) {
+    commissionerId = KNOWN_USERS[commissionerArg].id;
+    commissionerLabel = KNOWN_USERS[commissionerArg].name;
+  } else {
+    const state = loadState();
+    const stateId = state.players?.[commissionerArg];
+    if (stateId) {
+      commissionerId = stateId;
+      commissionerLabel = commissionerArg;
+    } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(commissionerArg)) {
+      commissionerId = commissionerArg;
+      commissionerLabel = commissionerArg;
+    } else {
+      console.error(`Unknown commissioner "${commissionerArg}". Add to KNOWN_USERS or run register-player first.`);
+      process.exit(1);
+    }
+  }
+
+  const leagueName = args.name ?? `${commissionerLabel}'s League`;
+  const roundCount = Math.max(1, parseInt(args.rounds ?? '10', 10));
+
+  console.log(`\nSeeding league "${leagueName}"...`);
+  console.log(`  Commissioner: ${commissionerLabel} (${commissionerId})`);
+  console.log(`  Rounds: ${roundCount}`);
+
+  // 1. Create league — admin_user_id identifies the commissioner; RLS uses this.
+  const leagueRes = await sb(env, '/rest/v1/leagues', 'POST', {
+    name: leagueName,
+    admin_user_id: commissionerId,
+  });
+  if (!leagueRes.ok) { console.error('League creation failed:', leagueRes.data); process.exit(1); }
+  const league = Array.isArray(leagueRes.data) ? leagueRes.data[0] : leagueRes.data;
+  console.log(`\n✓ League:  ${league.id}`);
+
+  // 2. Create season — invite_token auto-generates via gen_random_uuid() default.
+  const seasonRes = await sb(env, '/rest/v1/seasons', 'POST', {
+    league_id: league.id,
+    name: 'Season 1',
+    season_number: 1,
+  });
+  if (!seasonRes.ok) { console.error('Season creation failed:', seasonRes.data); process.exit(1); }
+  const season = Array.isArray(seasonRes.data) ? seasonRes.data[0] : seasonRes.data;
+  console.log(`✓ Season:  ${season.id}`);
+  console.log(`  Invite:  mix://join?token=${season.invite_token}`);
+
+  // 3. Add members.
+  // Commissioner is a regular participant in league_members; admin status is on leagues.admin_user_id.
+  console.log(`\nAdding members...`);
+  await addMember(env, league.id, commissionerId, 'participant');
+  console.log(`  ✓ ${commissionerLabel} (commissioner / participant)`);
+  for (const p of FIXTURE_PLAYERS) {
+    await addMember(env, league.id, p.id, p.role);
+    console.log(`  ✓ Player ${p.key} (${p.role})`);
+  }
+  for (const [name, user] of Object.entries(KNOWN_USERS)) {
+    if (user.id === commissionerId) continue;
+    await addMember(env, league.id, user.id, 'participant');
+    console.log(`  ✓ ${user.name} (known user / participant)`);
+  }
+
+  // 4. Create rounds.
+  // Round 1: submissions open now, closes in 7 days; voting closes in 14 days.
+  // Round N (N > 1): each subsequent round starts the day after the previous
+  //   voting period ends, runs for 7 days of submissions + 7 days of voting.
+  console.log(`\nCreating ${roundCount} round(s)...`);
+  const now = Date.now();
+  const DAY = 86_400_000;
+  const roundIds = [];
+
+  for (let i = 0; i < roundCount; i++) {
+    const rn = i + 1;
+    const fixture = ROUND_FIXTURES[i % ROUND_FIXTURES.length];
+    // R1 submissions open from now; each round is 14 days, stacked back-to-back.
+    const subsCloseMs = now + ((rn - 1) * 14 + 7) * DAY;
+    const voteCloseMs = now + (rn * 14) * DAY;
+
+    const roundRes = await sb(env, '/rest/v1/rounds', 'POST', {
+      season_id: season.id,
+      round_number: rn,
+      prompt: fixture.prompt,
+      description: fixture.description,
+      submission_deadline_at: new Date(subsCloseMs).toISOString(),
+      voting_deadline_at: new Date(voteCloseMs).toISOString(),
+    });
+    if (!roundRes.ok) {
+      console.error(`  ✗ Round ${rn} failed:`, roundRes.data);
+      continue;
+    }
+    const round = Array.isArray(roundRes.data) ? roundRes.data[0] : roundRes.data;
+    roundIds.push(round.id);
+    const marker = rn === 1 ? ' ← LIVE' : '';
+    console.log(`  ✓ R${String(rn).padStart(2, '0')} "sounds like: ${fixture.prompt}"${marker}`);
+  }
+
+  // Persist to state so subsequent commands can reference without copy-pasting IDs.
+  const state = loadState();
+  state.lastSeedLeague = { leagueId: league.id, seasonId: season.id, roundIds, inviteToken: season.invite_token };
+  saveState(state);
+
+  console.log(`\n✓ Done.`);
+  console.log(`  League ID:       ${league.id}`);
+  console.log(`  Season ID:       ${season.id}`);
+  console.log(`  Active round:    ${roundIds[0] ?? 'n/a'}`);
+  console.log(`  Invite link:     mix://join?token=${season.invite_token}`);
+  console.log(`\n  IDs saved to scripts/.test-state.json under lastSeedLeague.`);
+}
+
 async function advanceRound(env, args) {
   const roundId = args.round;
   if (!roundId) { console.error('Usage: advance --round <id> [--subs-close <s>] [--vote-close <s>]'); process.exit(1); }
@@ -309,36 +553,41 @@ async function submitForPlayer(env, args) {
   const key = args.player?.toUpperCase();
   const rawKey = args.player;
   const roundId = args.round;
-  if (!rawKey || !roundId) { console.error('Usage: submit --player <A|B|C|andrea|...> --round <id>'); process.exit(1); }
+  if (!rawKey || !roundId) { console.error('Usage: submit --player <A|B|C|D|E> --round <id>'); process.exit(1); }
 
   const state = loadState();
   const userId = state.players?.[key] ?? state.players?.[rawKey.toLowerCase()];
   if (!userId) { console.error(`No saved ID for player "${rawKey}" — run register-player or setup-players first`); process.exit(1); }
 
-  // Get round → season info
+  const pool = FIXTURE_TRACKS[key];
+  if (!pool || pool.length === 0) {
+    console.error(`No FIXTURE_TRACKS defined for player "${key}". Add entries to FIXTURE_TRACKS in scripts/test.mjs.`);
+    process.exit(1);
+  }
+
+  // Get round → season info to know how many submissions to insert.
   const roundRes = await sb(env, `/rest/v1/rounds?id=eq.${roundId}&select=*,seasons(submissions_per_user)`);
   const round = roundRes.data?.[0];
   if (!round) { console.error('Round not found'); process.exit(1); }
   const limit = round.seasons?.submissions_per_user ?? 1;
 
-  // Fetch recommendations — named players fall back to DEFAULT_GENRE
-  const genre = PLAYERS[key]?.genre ?? DEFAULT_GENRE;
-  console.log(`Fetching ${limit} ${genre} recommendation(s) from Spotify...`);
-  const token = await spotifyToken(env);
-  const tracks = await recommendedTracks(token, genre, limit);
-  if (tracks.length === 0) { console.error('No tracks returned from Spotify'); process.exit(1); }
+  if (pool.length < limit) {
+    console.warn(`  Player ${key} has ${pool.length} fixture track(s) but round expects ${limit}. Submitting ${pool.length}.`);
+  }
 
-  const rows = tracks.slice(0, limit).map((t) => ({
+  const rows = pool.slice(0, limit).map((t) => ({
     round_id: roundId,
     user_id: userId,
-    spotify_track_id: t.id,
-    track_title: t.name,
-    track_artist: t.artists.map((a) => a.name).join(', '),
-    track_artwork_url: t.album.images?.[0]?.url ?? null,
-    track_isrc: t.external_ids?.isrc ?? '',
-    track_album_name: t.album.name,
-    track_duration_ms: t.duration_ms,
-    track_popularity: t.popularity,
+    track_source: 'spotify',
+    spotify_track_id: t.spotifyTrackId,
+    apple_music_id: t.appleMusicId,
+    track_isrc: t.isrc,
+    track_title: t.title,
+    track_artist: t.artist,
+    track_album_name: t.albumName,
+    track_artwork_url: t.artworkUrl,
+    track_duration_ms: t.durationMs,
+    track_popularity: null,
     comment: null,
   }));
 
@@ -369,14 +618,14 @@ async function voteForPlayer(env, args) {
   const totalPoints = round.seasons?.default_points_per_round ?? 10;
   const maxPerTrack = round.seasons?.default_max_points_per_track ?? 5;
 
-  // Get submissions to vote on (exclude own)
-  const subsRes = await sb(env, `/rest/v1/submissions?round_id=eq.${roundId}&user_id=neq.${userId}&select=id`);
+  // Get submissions to vote on (exclude own). Order by id so votes are stable
+  // across runs — same voter always sees submissions in the same order.
+  const subsRes = await sb(env, `/rest/v1/submissions?round_id=eq.${roundId}&user_id=neq.${userId}&select=id&order=id.asc`);
   const subs = subsRes.data ?? [];
   if (subs.length === 0) { console.error('No submissions to vote on for this player'); process.exit(1); }
 
-  // Distribute points randomly across submissions.
-  // The votes table has a `points > 0` check, so drop any zero-point rows
-  // (distributePoints can leave some submissions at 0 when points < submissions).
+  // Deterministic point distribution — fills submissions in order up to maxPerTrack.
+  // The votes table has a `points > 0` check, so drop any zero-point rows.
   const pts = distributePoints(totalPoints, subs.length, maxPerTrack);
   const votes = subs
     .map((s, i) => ({ submission_id: s.id, points: pts[i] }))
@@ -397,10 +646,10 @@ async function voteForPlayer(env, args) {
     process.exit(1);
   }
 
-  // Leave a comment on a random submission
+  // Leave a fixed comment on the first submission — deterministic across runs.
   const commentPool = COMMENTS[key] ?? COMMENTS[rawKey.toLowerCase()] ?? ['great track'];
-  const commentText = commentPool[Math.floor(Math.random() * commentPool.length)];
-  const targetSub = subs[Math.floor(Math.random() * subs.length)];
+  const commentText = commentPool[0];
+  const targetSub = subs[0];
   const commentRes = await sb(env, '/rest/v1/comments', 'POST', {
     round_id: roundId,
     submission_id: targetSub.id,
@@ -577,6 +826,44 @@ async function registerPlayer(env, args) {
   console.log(`✓ Registered "${name}" → ${id}`);
 }
 
+// sync-state: write fixture player IDs and known user IDs into state so
+// submit/vote commands work without running setup-players. Safe to run any
+// time — just overwrites those keys, leaves the rest of state alone.
+// Usage: node scripts/test.mjs sync-state
+async function syncState(env, args) {
+  const state = loadState();
+  state.players = state.players ?? {};
+  for (const p of FIXTURE_PLAYERS) {
+    state.players[p.key.toLowerCase()] = p.id;
+  }
+  for (const [name, user] of Object.entries(KNOWN_USERS)) {
+    state.players[name] = user.id;
+  }
+  saveState(state);
+  console.log('✓ state.players synced:');
+  for (const [k, v] of Object.entries(state.players)) {
+    console.log(`  ${k}: ${v}`);
+  }
+}
+
+// add-member: add a known user to a league by name.
+// Usage: node scripts/test.mjs add-member --name andrea --league <id>
+async function addKnownMember(env, args) {
+  const name = args.name?.toLowerCase();
+  const leagueId = args.league;
+  if (!name || !leagueId) {
+    console.error('Usage: add-member --name <name> --league <id>');
+    process.exit(1);
+  }
+  const user = KNOWN_USERS[name];
+  if (!user) {
+    console.error(`Unknown user "${name}". Add to KNOWN_USERS first.`);
+    process.exit(1);
+  }
+  await addMember(env, leagueId, user.id, 'participant');
+  console.log(`✓ ${user.name} added to league ${leagueId} as participant`);
+}
+
 // ─── Active round / rounds list ──────────────────────────────────────────────
 
 // Shared internal: same selection as activeRound below + the app's
@@ -747,28 +1034,34 @@ async function listRounds(env, args) {
 }
 
 const commands = {
-  'setup-players':    setupPlayers,
-  'create-user':      createUser,
-  'register-player':  registerPlayer,
-  join:               joinForPlayer,
-  advance:            advanceRound,
-  submit:             submitForPlayer,
-  vote:               voteForPlayer,
-  'all-submit':       allSubmit,
-  'all-vote':         allVote,
-  'close-voting':     closeVoting,
-  'round-results':    roundResults,
-  'active-round':     activeRound,
-  rounds:             listRounds,
-  'invite-link':      inviteLink,
+  'seed-league':          seedLeague,
+  'setup-players':        setupPlayers,
+  'sync-state':           syncState,
+  'create-user':          createUser,
+  'register-player':      registerPlayer,
+  'add-member':           addKnownMember,
+  join:                   joinForPlayer,
+  advance:                advanceRound,
+  submit:                 submitForPlayer,
+  vote:                   voteForPlayer,
+  'all-submit':           allSubmit,
+  'all-vote':             allVote,
+  'close-voting':         closeVoting,
+  'round-results':        roundResults,
+  'active-round':         activeRound,
+  rounds:                 listRounds,
+  'invite-link':          inviteLink,
 };
 
 const fn = commands[command];
 if (!fn) {
   console.log('Usage: node scripts/test.mjs <command> [options]');
   console.log('');
+  console.log('  seed-league    --commissioner <victor|andrea|uuid> [--name <league-name>] [--rounds <n>]');
   console.log('  setup-players  --league <id> | --season <id>');
+  console.log('  sync-state     (write fixture + known user IDs into state — run after state is lost)');
   console.log('  create-user    --player <D|E>');
+  console.log('  add-member     --name <victor|andrea> --league <id>');
   console.log('  join           --player <A-E> --invite <url-or-token>');
   console.log('  advance        --round <id> [--subs-close <s>] [--vote-close <s>]');
   console.log('  submit         --player <A-E> --round <id>');

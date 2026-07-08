@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
+import { auditMusicCredentials } from './musicCredentialAudit';
 
 const SPOTIFY_CLIENT_ID = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID!;
 const REDIRECT_URI = 'mix://auth/callback';
@@ -53,6 +54,10 @@ async function generatePKCE() {
 // ─── Main auth flow ───────────────────────────────────────────────────────────
 
 export async function loginWithSpotify(): Promise<SpotifyProfile> {
+  auditMusicCredentials("spotify.login.start", {
+    provider: "spotify",
+    appleMusicCredentialsUsed: false,
+  });
   const { verifier, challenge } = await generatePKCE();
   await SecureStore.setItemAsync('spotify_pkce_verifier', verifier);
 
@@ -110,6 +115,12 @@ export async function loginWithSpotify(): Promise<SpotifyProfile> {
 
   const profile = await fetchSpotifyProfile(tokens.accessToken);
   await SecureStore.setItemAsync('spotify_user', JSON.stringify(profile));
+  auditMusicCredentials("spotify.login.profileStored", {
+    provider: "spotify",
+    spotifyUserId: profile.id,
+    hasEmail: !!profile.email,
+    appleMusicCredentialsUsed: false,
+  });
   return profile;
 }
 
@@ -117,6 +128,12 @@ export async function loginWithSpotify(): Promise<SpotifyProfile> {
 
 export async function saveSpotifyTokens(tokens: SpotifyTokens) {
   await SecureStore.setItemAsync('spotify_tokens', JSON.stringify(tokens));
+  auditMusicCredentials("spotify.tokens.stored", {
+    provider: "spotify",
+    hasAccessToken: !!tokens.accessToken,
+    hasRefreshToken: !!tokens.refreshToken,
+    expiresAt: tokens.expiresAt,
+  });
 }
 
 export async function getSpotifyTokens(): Promise<SpotifyTokens | null> {
@@ -151,19 +168,43 @@ export async function refreshSpotifyTokens(refreshToken: string): Promise<Spotif
 // Returns a valid (non-expired) access token, refreshing if needed
 export async function getValidAccessToken(): Promise<string | null> {
   const tokens = await getSpotifyTokens();
-  if (!tokens) return null;
+  if (!tokens) {
+    auditMusicCredentials("spotify.token.requested", {
+      provider: "spotify",
+      result: "missing",
+    });
+    return null;
+  }
   // Refresh if expiring within 2 minutes
   if (Date.now() > tokens.expiresAt - 120_000) {
+    auditMusicCredentials("spotify.token.requested", {
+      provider: "spotify",
+      result: "refreshing",
+    });
     const refreshed = await refreshSpotifyTokens(tokens.refreshToken);
     return refreshed.accessToken;
   }
+  auditMusicCredentials("spotify.token.requested", {
+    provider: "spotify",
+    result: "cached-valid",
+  });
   return tokens.accessToken;
 }
 
 /** New access token from Spotify (Web Playback SDK often needs a freshly minted token even if the old one is not expired yet). */
 export async function forceRefreshAccessToken(): Promise<string | null> {
   const tokens = await getSpotifyTokens();
-  if (!tokens) return null;
+  if (!tokens) {
+    auditMusicCredentials("spotify.token.forceRefresh", {
+      provider: "spotify",
+      result: "missing",
+    });
+    return null;
+  }
+  auditMusicCredentials("spotify.token.forceRefresh", {
+    provider: "spotify",
+    result: "refreshing",
+  });
   const refreshed = await refreshSpotifyTokens(tokens.refreshToken);
   return refreshed.accessToken;
 }
@@ -177,6 +218,7 @@ export async function clearSpotifySession() {
   await SecureStore.deleteItemAsync('spotify_tokens');
   await SecureStore.deleteItemAsync('spotify_user');
   await SecureStore.deleteItemAsync('spotify_pkce_verifier');
+  auditMusicCredentials("spotify.session.cleared", { provider: "spotify" });
 }
 
 // ─── Profile ─────────────────────────────────────────────────────────────────
