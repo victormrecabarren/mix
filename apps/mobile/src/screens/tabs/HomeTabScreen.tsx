@@ -373,6 +373,7 @@ function HomeTabContent({
               refreshing={refreshing}
               onRefresh={onRefresh}
               tintColor={THEME.ink}
+              progressViewOffset={insets.top + headerHeight}
             />
           }
         >

@@ -1,5 +1,12 @@
 import { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  RefreshControl,
+  ScrollView,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlayback, usePlaybackPosition } from '@/playback/PlaybackContext';
 import { useSession } from '@/context/SessionContext';
@@ -152,7 +159,20 @@ export function ProfileTabScreen() {
   } = usePlayback();
   const { session, supabaseUserId, signOut } = useSession();
   const { setActiveLeagueId, activeLeagueId } = useLeague();
-  const { data: leagues = [] } = useMyLeagues(supabaseUserId ?? undefined);
+  const {
+    data: leagues = [],
+    refetch: refetchLeagues,
+  } = useMyLeagues(supabaseUserId ?? undefined);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetchLeagues();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchLeagues]);
 
   const hasTrack = currentIndex !== null;
   const hasPrevious = currentIndex !== null && currentIndex > 0;
@@ -172,6 +192,13 @@ export function ProfileTabScreen() {
       style={{ backgroundColor: '#000' }}
       contentContainerStyle={[styles.root, { paddingTop: insets.top + 16 }]}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#fff"
+        />
+      }
     >
       {/* ── User profile ── */}
       <View style={styles.profileSection}>
