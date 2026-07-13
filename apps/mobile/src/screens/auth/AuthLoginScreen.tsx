@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, TextInput, Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
+import { useLocalSearchParams } from 'expo-router';
 import { useSession } from '@/context/SessionContext';
 import { useAppleMusicPlayer } from '@/playback/AppleMusicPlayer';
 import { signInWithSpotify, signInWithPassword, signInWithAppleMusic } from '@/services/auth';
@@ -9,6 +10,7 @@ import { MixError } from '@/services/errors';
 WebBrowser.maybeCompleteAuthSession();
 
 export function AuthLoginScreen() {
+  const { reason } = useLocalSearchParams<{ reason?: string }>();
   const [loading, setLoading] = useState(false);
   const [devMode, setDevMode] = useState(false);
   const [email, setEmail] = useState('');
@@ -79,6 +81,12 @@ export function AuthLoginScreen() {
       <TouchableOpacity onPress={handleTitleTap} activeOpacity={1}>
         <Text style={styles.title}>mix</Text>
       </TouchableOpacity>
+
+      {reason === 'spotify-session-revoked' && (
+        <Text style={styles.reauthMessage}>
+          Your Spotify session expired. Sign in again to continue playing.
+        </Text>
+      )}
 
       <TouchableOpacity
         style={[styles.button, loading && styles.buttonBusy]}
@@ -153,6 +161,14 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#fff',
     letterSpacing: -2,
+  },
+  reauthMessage: {
+    width: '100%',
+    maxWidth: 320,
+    color: '#fff',
+    fontSize: 16,
+    lineHeight: 22,
+    textAlign: 'center',
   },
   button: {
     width: '100%',
