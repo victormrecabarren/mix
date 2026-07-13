@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack, useLocalSearchParams, useRouter, useSegments } from "expo-router";
 import "@/lib/disableFontScaling";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -43,14 +43,18 @@ import { getValidAccessToken } from "@/lib/spotifyAuth";
 const PREVIEW_DEFAULT: string | null = null;
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { session, loading } = useSession();
+  const { session, loading, needsSpotifyReauth } = useSession();
   const { init } = useSpotifyPlayer();
   const segments = useSegments();
+  const params = useLocalSearchParams<{ reason?: string }>();
   const router = useRouter();
 
   // SessionProvider calls `refresh()` on every AppState foreground → new `session` object reference
   // even for the same user. Depending on `session` would re-run `init` → `mixInit` and kill Web Playback.
-  const spotifyUserId = session?.id ?? null;
+  const spotifyUserId =
+    session?.musicService === "spotify" && !needsSpotifyReauth
+      ? session.id
+      : null;
   useEffect(() => {
     if (!spotifyUserId) return;
     void getValidAccessToken().then((token) => {
@@ -64,6 +68,16 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     const inAuthCallback = segments[0] === "auth";
     const inPreview = segments[0] === "ui-preview";
 
+    if (needsSpotifyReauth) {
+      if (params.reason !== "spotify-session-revoked") {
+        router.replace({
+          pathname: "/(auth)",
+          params: { reason: "spotify-session-revoked" },
+        });
+      }
+      return;
+    }
+
     // TEMP: while PREVIEW_DEFAULT is set, route all traffic into the preview.
     // TODO: remove this once the MVP tasks are completed and ready for production
     if (PREVIEW_DEFAULT && !inPreview && !inAuthCallback) {
@@ -76,7 +90,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     } else if (session && inAuthGroup) {
       router.replace("/(tabs)/(home)");
     }
-  }, [session, loading, segments, router]);
+  }, [session, loading, needsSpotifyReauth, params.reason, segments, router]);
 
   return <>{children}</>;
 }

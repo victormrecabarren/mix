@@ -10,10 +10,17 @@ import { AppState, StyleSheet, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import {
   forceRefreshAccessToken,
+  getSpotifyProfile,
+  getSpotifyTokenExpiry,
   getValidAccessToken,
+  refreshSpotifyProfile,
 } from "@/lib/spotifyAuth";
 import { normalizeSpotifyTrackUri } from "@/lib/spotifyTrackUri";
-import { auditMusicCredentials } from "@/lib/musicCredentialAudit";
+import {
+  auditMusicCredentials,
+  auditMusicCredentialWarning,
+} from "@/lib/musicCredentialAudit";
+import { useSession } from "@/context/SessionContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -142,9 +149,10 @@ const PLAYER_HTML = `
       });
     });
 
-    player.addListener('initialization_error', function(e) { rn({ type: 'error', message: 'Init: ' + e.message }); });
+    player.addListener('initialization_error', function(e) { rn({ type: 'initialization_error', message: e.message }); });
     player.addListener('authentication_error', function(e) { rn({ type: 'authentication_error', message: e.message }); });
-    player.addListener('account_error', function(e) { rn({ type: 'error', message: 'Account: ' + e.message }); });
+    player.addListener('account_error', function(e) { rn({ type: 'account_error', message: e.message }); });
+    player.addListener('playback_error', function(e) { rn({ type: 'playback_error', message: e.message }); });
 
     player.connect().then(function(ok) {
       if (!ok) rn({ type: 'error', message: 'Failed to connect player' });
@@ -244,6 +252,7 @@ const HiddenWebView = ({
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function SpotifyPlayerProvider({ children }: { children: React.ReactNode }) {
+  const { requireSpotifyReauth } = useSession();
   const webViewRef = useRef<WebView>(null);
   const [remountKey, setRemountKey] = useState(0);
   const [isReady, setIsReady] = useState(false);
@@ -263,6 +272,10 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
   const expectedUriRef = useRef<string | null>(null);
 
   const externalTakeoverListenersRef = useRef(new Set<() => void>());
+
+  const lastStateRef = useRef<SpotifyTrackState | null>(null);
+  const lastPauseCommandAtRef = useRef<number>(0);
+  const playStartedAtRef = useRef<number>(0);
 
   const subscribeExternalTakeover = useCallback((listener: () => void) => {
     const set = externalTakeoverListenersRef.current;
@@ -306,15 +319,31 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
           if (listed) {
             deviceIdRef.current = capturedDeviceId;
             setIsReady(true);
+            void refreshSpotifyProfile();
           } else {
+            auditMusicCredentialWarning("playback.spotify.deviceNotListed", {
+              provider: "spotify",
+              reason: "device-never-listed-in-connect",
+            });
             console.warn("[SpotifyWebPlayer] device never appeared in Connect");
           }
         })();
 
       } else if (msg.type === "not_ready") {
+        auditMusicCredentialWarning("playback.spotify.deviceNotReady", {
+          provider: "spotify",
+          hadTrackState: !!lastStateRef.current,
+          lastPositionMs: lastStateRef.current?.positionMs,
+          lastDurationMs: lastStateRef.current?.durationMs,
+          msSincePlayStarted:
+            playStartedAtRef.current > 0
+              ? Date.now() - playStartedAtRef.current
+              : null,
+        });
         deviceIdRef.current = null;
         setIsReady(false);
         setTrackState(null);
+        lastStateRef.current = null;
 
       } else if (msg.type === "stateChanged") {
         if (suppressRef.current) return;
@@ -342,9 +371,40 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
           return;
         }
 
+        const prev = lastStateRef.current;
+        const justPaused = prev && !prev.isPaused && s.isPaused;
+        const sinceExplicitPause = Date.now() - lastPauseCommandAtRef.current;
+        const nearEnd =
+          s.durationMs > 0 && s.positionMs >= s.durationMs - 3000;
+        if (justPaused && sinceExplicitPause > 2000 && !nearEnd) {
+          auditMusicCredentialWarning("playback.spotify.spontaneousPause", {
+            provider: "spotify",
+            positionMs: s.positionMs,
+            durationMs: s.durationMs,
+            msSincePlayStarted:
+              playStartedAtRef.current > 0
+                ? Date.now() - playStartedAtRef.current
+                : null,
+            trackUri: s.trackUri,
+            likelyCause:
+              s.positionMs === 0
+                ? "sdk-rejected-track-check-premium-or-market"
+                : "session-preempted-or-license-expired",
+          });
+        }
+
+        lastStateRef.current = s;
         setTrackState(s);
 
       } else if (msg.type === "authentication_error") {
+        auditMusicCredentialWarning("playback.spotify.sdk.authenticationError", {
+          provider: "spotify",
+          message: (msg.message as string) ?? "",
+          msSincePlayStarted:
+            playStartedAtRef.current > 0
+              ? Date.now() - playStartedAtRef.current
+              : null,
+        });
         console.warn("[SpotifyWebPlayer] auth error:", msg.message);
         setIsReady(false);
         deviceIdRef.current = null;
@@ -355,16 +415,49 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
           if (t) {
             pendingTokenRef.current = t;
             inject(`window.mixInit(${JSON.stringify(t)})`);
+          } else {
+            requireSpotifyReauth();
           }
         })();
 
+      } else if (msg.type === "account_error") {
+        auditMusicCredentialWarning("playback.spotify.sdk.accountError", {
+          provider: "spotify",
+          message: (msg.message as string) ?? "",
+          hint: "usually-means-non-premium-account",
+        });
+        console.warn("[SpotifyWebPlayer] account error:", msg.message);
+        void refreshSpotifyProfile();
+
+      } else if (msg.type === "initialization_error") {
+        auditMusicCredentialWarning("playback.spotify.sdk.initializationError", {
+          provider: "spotify",
+          message: (msg.message as string) ?? "",
+        });
+        console.warn("[SpotifyWebPlayer] init error:", msg.message);
+
+      } else if (msg.type === "playback_error") {
+        auditMusicCredentialWarning("playback.spotify.sdk.playbackError", {
+          provider: "spotify",
+          message: (msg.message as string) ?? "",
+          msSincePlayStarted:
+            playStartedAtRef.current > 0
+              ? Date.now() - playStartedAtRef.current
+              : null,
+        });
+        console.warn("[SpotifyWebPlayer] playback error:", msg.message);
+
       } else if (msg.type === "error") {
+        auditMusicCredentialWarning("playback.spotify.sdk.error", {
+          provider: "spotify",
+          message: (msg.message as string) ?? "",
+        });
         console.warn("[SpotifyWebPlayer] error:", msg.message);
       } else if (msg.type === "log") {
         console.log("[SpotifyWebPlayer]", msg.message);
       }
     } catch {}
-  }, [inject, resetGate, emitExternalTakeover]);
+  }, [inject, resetGate, emitExternalTakeover, requireSpotifyReauth]);
 
   // ── WebView lifecycle ──────────────────────────────────────────────────────
 
@@ -396,25 +489,54 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
   const init = useCallback((token: string) => {
     pendingTokenRef.current = token;
     if (webViewLoadedRef.current) {
+      // mixInit rebuilds the SDK player, which re-registers the Connect
+      // device under whatever account owns this token. The old device id is
+      // account-scoped, so drop it now — play() polls until the new `ready`
+      // flow repopulates it.
+      readyGenRef.current += 1;
+      deviceIdRef.current = null;
+      setIsReady(false);
+      resetGate();
+      setTrackState(null);
       inject(`window.mixInit(${JSON.stringify(token)})`);
     }
-  }, [inject]);
+  }, [inject, resetGate]);
 
   const abandonMixSpotifySession = useCallback(() => {
     resetGate();
     setTrackState(null);
+    lastPauseCommandAtRef.current = Date.now();
     inject("window.mixPause()");
   }, [inject, resetGate]);
 
   const play = useCallback(async (uri: string) => {
     const trackUri = normalizeSpotifyTrackUri(uri);
+    const [profileSnapshot, expiresAtSnapshot] = await Promise.all([
+      getSpotifyProfile(),
+      getSpotifyTokenExpiry(),
+    ]);
     auditMusicCredentials("playback.spotify.play.requested", {
       provider: "spotify",
       requestedUri: uri,
       normalizedUri: trackUri,
       credentialSource: "spotify-user-token",
       appleMusicCredentialsUsed: false,
+      product: profileSnapshot?.product ?? "unknown",
+      productCheckedAgeMs: profileSnapshot?.productCheckedAt
+        ? Date.now() - profileSnapshot.productCheckedAt
+        : null,
+      msUntilTokenExpiry: expiresAtSnapshot
+        ? expiresAtSnapshot - Date.now()
+        : null,
+      spotifyUserId: profileSnapshot?.id,
     });
+    if (profileSnapshot?.product && profileSnapshot.product !== "premium") {
+      auditMusicCredentialWarning("playback.spotify.play.nonPremiumAccount", {
+        provider: "spotify",
+        product: profileSnapshot.product,
+        hint: "Web Playback SDK streams only for Premium",
+      });
+    }
     if (!/^spotify:track:[0-9A-Za-z]{22}$/.test(trackUri)) {
       console.warn("[SpotifyWebPlayer] invalid track uri:", uri, "→", trackUri);
       return;
@@ -433,6 +555,7 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
           appleMusicCredentialsUsed: false,
         });
         console.warn("[SpotifyWebPlayer] play: no valid token");
+        requireSpotifyReauth();
         resetGate();
         return;
       }
@@ -475,11 +598,27 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
 
       let res = await doPlay(freshToken, deviceId);
 
-      // 404 = device not ready yet; wait and retry once
+      // 404 = the device id isn't registered under this account — either
+      // stale after an account switch or dropped from Connect. Re-register
+      // the player and retry once with the fresh device id.
       if (res.status === 404) {
-        await new Promise((r) => setTimeout(r, 2_000));
+        auditMusicCredentialWarning("playback.spotify.play.deviceNotFound", {
+          provider: "spotify",
+          staleDeviceId: deviceId,
+        });
+        if (deviceIdRef.current === deviceId) deviceIdRef.current = null;
+        setIsReady(false);
         const retryToken = (await getValidAccessToken()) ?? freshToken;
-        res = await doPlay(retryToken, deviceId);
+        inject(`window.mixInit(${JSON.stringify(retryToken)})`);
+        let retryDeviceId: string | null = null;
+        const retryDeadline = Date.now() + 20_000;
+        while (Date.now() < retryDeadline) {
+          if (deviceIdRef.current) { retryDeviceId = deviceIdRef.current; break; }
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (retryDeviceId) {
+          res = await doPlay((await getValidAccessToken()) ?? retryToken, retryDeviceId);
+        }
       }
 
       if (!res.ok) {
@@ -498,12 +637,16 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
       // Success — open the gate
       acceptRef.current = true;
       suppressRef.current = false;
+      playStartedAtRef.current = Date.now();
+      lastStateRef.current = null;
       auditMusicCredentials("playback.spotify.play.started", {
         provider: "spotify",
         normalizedUri: trackUri,
         credentialSource: "spotify-user-token",
         appleMusicCredentialsUsed: false,
+        product: profileSnapshot?.product ?? "unknown",
       });
+
     } catch (e) {
       auditMusicCredentials("playback.spotify.play.failed", {
         reason: "exception",
@@ -513,9 +656,12 @@ export function SpotifyPlayerProvider({ children }: { children: React.ReactNode 
       console.warn("[SpotifyWebPlayer] play error:", e);
       resetGate();
     }
-  }, [inject, resetGate]);
+  }, [inject, requireSpotifyReauth, resetGate]);
 
-  const pause = useCallback(() => inject("window.mixPause()"), [inject]);
+  const pause = useCallback(() => {
+    lastPauseCommandAtRef.current = Date.now();
+    inject("window.mixPause()");
+  }, [inject]);
   const resume = useCallback(() => inject("window.mixResume()"), [inject]);
   const seek = useCallback(
     (positionMs: number) => inject(`window.mixSeek(${positionMs})`),

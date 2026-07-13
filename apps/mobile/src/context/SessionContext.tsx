@@ -24,6 +24,8 @@ interface SessionContextValue {
   session: MusicUserProfile | null;
   supabaseUserId: string | null;
   loading: boolean;
+  needsSpotifyReauth: boolean;
+  requireSpotifyReauth: () => void;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -32,6 +34,8 @@ const SessionContext = createContext<SessionContextValue>({
   session: null,
   supabaseUserId: null,
   loading: true,
+  needsSpotifyReauth: false,
+  requireSpotifyReauth: () => {},
   signOut: async () => {},
   refresh: async () => {},
 });
@@ -40,11 +44,23 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<MusicUserProfile | null>(null);
   const [supabaseUserId, setSupabaseUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [needsSpotifyReauth, setNeedsSpotifyReauth] = useState(false);
+  const needsSpotifyReauthRef = useRef(false);
   const appState = useRef(AppState.currentState);
+
+  const updateSpotifyReauth = useCallback((needed: boolean) => {
+    needsSpotifyReauthRef.current = needed;
+    setNeedsSpotifyReauth(needed);
+  }, []);
+
+  const requireSpotifyReauth = useCallback(() => {
+    updateSpotifyReauth(true);
+  }, [updateSpotifyReauth]);
 
   const refresh = useCallback(async () => {
     let p: MusicUserProfile | null = null;
     let selectedBy: 'spotify' | 'applemusic' | 'supabase-fallback' | null = null;
+    let spotifyReauthRequired = false;
 
     // ── Spotify path ───────────────────────────────────────────────────────────
     const spotifyProfile = await getSpotifyProfile();
@@ -62,31 +78,38 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       });
     }
     if (spotifyProfile) {
+      const token = await getValidAccessToken();
+      if (!token) {
+        spotifyReauthRequired = true;
+        updateSpotifyReauth(true);
+      }
+
       // Crash recovery: if Spotify session exists but Supabase session was lost
       // (e.g. AsyncStorage cleared), re-run the auth bridge silently.
-      if (!(await hasSupabaseSession())) {
-        const token = await getValidAccessToken();
-        if (token) {
-          try {
-            await signInToSupabase(token);
-          } catch {
-            // Non-fatal — app still works for playback, DB calls will fail gracefully
-          }
+      if (token && !(await hasSupabaseSession())) {
+        try {
+          await signInToSupabase(token);
+        } catch {
+          // Non-fatal — app still works for playback, DB calls will fail gracefully
         }
       }
-      p = {
-        musicService: 'spotify',
-        id: spotifyProfile.id,
-        displayName: spotifyProfile.displayName,
-        email: spotifyProfile.email,
-        imageUrl: spotifyProfile.imageUrl,
-      };
-      selectedBy = 'spotify';
+      if (token) {
+        updateSpotifyReauth(false);
+        p = {
+          musicService: 'spotify',
+          id: spotifyProfile.id,
+          displayName: spotifyProfile.displayName,
+          email: spotifyProfile.email,
+          imageUrl: spotifyProfile.imageUrl,
+        };
+        selectedBy = 'spotify';
+      }
     }
 
     // ── Apple Music path ───────────────────────────────────────────────────────
-    if (!p) {
+    if (!p && !spotifyReauthRequired) {
       if (appleProfile) {
+        updateSpotifyReauth(false);
         p = {
           musicService: 'applemusic',
           id: appleProfile.id,
@@ -101,7 +124,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // ── Fallback for email/password test players ───────────────────────────────
     // If neither music service has a local session but Supabase is still active,
     // build a minimal profile so the app recognises the user as signed in.
-    if (!p) {
+    if (!p && !spotifyReauthRequired && !needsSpotifyReauthRef.current) {
       const { data: sessionData } = await supabase.auth.getSession();
       const supabaseUser = sessionData.session?.user;
       if (supabaseUser) {
@@ -137,7 +160,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       });
     }
     setLoading(false);
-  }, []);
+  }, [updateSpotifyReauth]);
 
   useEffect(() => {
     refresh();
@@ -159,11 +182,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     ]);
     setProfile(null);
     setSupabaseUserId(null);
+    updateSpotifyReauth(false);
     auditMusicCredentials('session.signOut.clearAllProviders.complete');
   };
 
   return (
-    <SessionContext.Provider value={{ session: profile, supabaseUserId, loading, signOut, refresh }}>
+    <SessionContext.Provider
+      value={{
+        session: profile,
+        supabaseUserId,
+        loading,
+        needsSpotifyReauth,
+        requireSpotifyReauth,
+        signOut,
+        refresh,
+      }}
+    >
       {children}
     </SessionContext.Provider>
   );

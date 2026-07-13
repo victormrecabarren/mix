@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
-import { auditMusicCredentials } from './musicCredentialAudit';
+import { auditMusicCredentials, auditMusicCredentialWarning } from './musicCredentialAudit';
 
 const SPOTIFY_CLIENT_ID = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID!;
 const REDIRECT_URI = 'mix://auth/callback';
@@ -29,7 +29,23 @@ export interface SpotifyProfile {
   displayName: string;
   email?: string;
   imageUrl?: string;
+  // 'premium' is required for Web Playback SDK streaming. Captured at login
+  // and refreshable via refreshSpotifyProfile().
+  product?: string;
+  productCheckedAt?: number;
 }
+
+export class SpotifyRefreshRevokedError extends Error {
+  constructor(
+    public readonly errorDescription: string,
+    public readonly errorCode: string,
+  ) {
+    super(errorDescription || 'Spotify refresh token revoked');
+    this.name = 'SpotifyRefreshRevokedError';
+  }
+}
+
+let hasAuditedSpotifyRevocation = false;
 
 // ─── PKCE helpers ────────────────────────────────────────────────────────────
 
@@ -119,6 +135,7 @@ export async function loginWithSpotify(): Promise<SpotifyProfile> {
     provider: "spotify",
     spotifyUserId: profile.id,
     hasEmail: !!profile.email,
+    product: profile.product ?? "unknown",
     appleMusicCredentialsUsed: false,
   });
   return profile;
@@ -128,6 +145,7 @@ export async function loginWithSpotify(): Promise<SpotifyProfile> {
 
 export async function saveSpotifyTokens(tokens: SpotifyTokens) {
   await SecureStore.setItemAsync('spotify_tokens', JSON.stringify(tokens));
+  hasAuditedSpotifyRevocation = false;
   auditMusicCredentials("spotify.tokens.stored", {
     provider: "spotify",
     hasAccessToken: !!tokens.accessToken,
@@ -152,8 +170,24 @@ export async function refreshSpotifyTokens(refreshToken: string): Promise<Spotif
     }).toString(),
   });
   if (!res.ok) {
-    const err = await res.json() as { error_description?: string };
-    throw new Error(err.error_description ?? 'Token refresh failed');
+    const err = await res.json() as { error?: string; error_description?: string };
+    const errorCode = err.error ?? '';
+    const errorDescription = err.error_description ?? 'Token refresh failed';
+    const isRevoked = errorCode === 'invalid_grant';
+
+    if (isRevoked) {
+      if (!hasAuditedSpotifyRevocation) {
+        hasAuditedSpotifyRevocation = true;
+        auditMusicCredentialWarning('spotify.session.revoked', {
+          errorDescription,
+          errorCode,
+        });
+        await clearSpotifySession();
+      }
+      throw new SpotifyRefreshRevokedError(errorDescription, errorCode);
+    }
+
+    throw new Error(errorDescription);
   }
   const data = await res.json() as { access_token: string; refresh_token?: string; expires_in: number };
   const tokens: SpotifyTokens = {
@@ -181,8 +215,13 @@ export async function getValidAccessToken(): Promise<string | null> {
       provider: "spotify",
       result: "refreshing",
     });
-    const refreshed = await refreshSpotifyTokens(tokens.refreshToken);
-    return refreshed.accessToken;
+    try {
+      const refreshed = await refreshSpotifyTokens(tokens.refreshToken);
+      return refreshed.accessToken;
+    } catch (error) {
+      if (error instanceof SpotifyRefreshRevokedError) return null;
+      throw error;
+    }
   }
   auditMusicCredentials("spotify.token.requested", {
     provider: "spotify",
@@ -205,8 +244,13 @@ export async function forceRefreshAccessToken(): Promise<string | null> {
     provider: "spotify",
     result: "refreshing",
   });
-  const refreshed = await refreshSpotifyTokens(tokens.refreshToken);
-  return refreshed.accessToken;
+  try {
+    const refreshed = await refreshSpotifyTokens(tokens.refreshToken);
+    return refreshed.accessToken;
+  } catch (error) {
+    if (error instanceof SpotifyRefreshRevokedError) return null;
+    throw error;
+  }
 }
 
 export async function getSpotifyProfile(): Promise<SpotifyProfile | null> {
@@ -228,11 +272,50 @@ async function fetchSpotifyProfile(accessToken: string): Promise<SpotifyProfile>
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error('Failed to fetch Spotify profile');
-  const data = await res.json() as { id: string; display_name?: string; email?: string; images?: { url: string }[] };
+  const data = await res.json() as {
+    id: string;
+    display_name?: string;
+    email?: string;
+    images?: { url: string }[];
+    product?: string;
+  };
   return {
     id: data.id,
     displayName: data.display_name ?? data.id,
     email: data.email,
     imageUrl: data.images?.[0]?.url,
+    product: data.product,
+    productCheckedAt: Date.now(),
   };
+}
+
+// Re-fetches /v1/me with the current token and updates the stored profile.
+// Use this to check whether the account is still Premium without forcing the
+// user to log out. Returns the updated profile, or null if no session.
+export async function refreshSpotifyProfile(): Promise<SpotifyProfile | null> {
+  const token = await getValidAccessToken();
+  if (!token) return null;
+  try {
+    const profile = await fetchSpotifyProfile(token);
+    await SecureStore.setItemAsync('spotify_user', JSON.stringify(profile));
+    auditMusicCredentials("spotify.profile.refreshed", {
+      provider: "spotify",
+      spotifyUserId: profile.id,
+      product: profile.product ?? "unknown",
+      hasEmail: !!profile.email,
+    });
+    return profile;
+  } catch (err) {
+    auditMusicCredentialWarning("spotify.profile.refreshFailed", {
+      provider: "spotify",
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+// Cheap read of the last-known token expiry for diagnostics.
+export async function getSpotifyTokenExpiry(): Promise<number | null> {
+  const tokens = await getSpotifyTokens();
+  return tokens?.expiresAt ?? null;
 }
