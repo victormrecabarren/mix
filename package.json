@@ -18,6 +18,7 @@
     "ios": "pnpm --filter @mix/mobile ios",
     "ios:sim": "pnpm --filter @mix/mobile ios:sim",
     "ios:device": "pnpm --filter @mix/mobile ios:device",
+    "doctor": "bash scripts/doctor-ios.sh",
     "vic": "pnpm --filter @mix/mobile vic",
     "setup": "pnpm install && pnpm --filter @mix/mobile prebuild"
   },
