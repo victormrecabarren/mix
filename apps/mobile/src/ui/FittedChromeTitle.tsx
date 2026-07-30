@@ -8,96 +8,93 @@ import {
 } from "react-native";
 import { ChromeText } from "@/ui/ChromeText";
 
-// Walk a StyleProp and pull out the most-specific fontSize (later styles
-// win, mirroring RN's own style cascade). Used to size the optical-center
-// nudge for the chrome star inline with the title — scaling per-title-size
-// rather than per-star-size means submissions (74pt) and home (52pt) both
-// land on the optical midline of italic Fraunces caps.
-function extractFontSize(style: StyleProp<TextStyle>): number | undefined {
-  if (!style) return undefined;
-  if (Array.isArray(style)) {
-    for (let i = style.length - 1; i >= 0; i--) {
-      const fs = extractFontSize(style[i] as StyleProp<TextStyle>);
-      if (fs !== undefined) return fs;
-    }
-    return undefined;
-  }
-  const s = style as TextStyle;
-  return typeof s.fontSize === "number" ? s.fontSize : undefined;
-}
-
 export type FittedChromeTitleProps = {
   text: string;
   textStyle: StyleProp<TextStyle>;
   style?: StyleProp<ViewStyle>;
-  minimumFontScale?: number;
   maxStarSize: number;
   starGap?: number;
-  lineOverlap?: number;
 };
 
-function splitMidpoint(text: string): string[] {
-  const trimmed = text.trim();
-  const spaces = [...trimmed.matchAll(/\s+/g)];
-  if (spaces.length === 0) return [trimmed];
+const FULL_SIZE_LENGTH = 10;
+const WRAP_LENGTH = 15;
+const MINIMUM_SCALE = 0.72;
 
-  const midpoint = trimmed.length / 2;
-  const split = spaces.reduce((best, match) => {
-    const index = match.index ?? 0;
-    return Math.abs(index - midpoint) < Math.abs(best - midpoint)
-      ? index
-      : best;
-  }, spaces[0].index ?? 0);
+function wrapTitle(text: string): string[] {
+  const lines: string[] = [];
+  let line = "";
 
-  return [trimmed.slice(0, split), trimmed.slice(split).trim()].filter(Boolean);
+  for (const word of text.trim().split(/\s+/)) {
+    const chunks = Array.from(word.matchAll(new RegExp(`.{1,${WRAP_LENGTH}}`, "g")), (match) => match[0]);
+
+    for (const chunk of chunks) {
+      const candidate = line ? `${line} ${chunk}` : chunk;
+      if (candidate.length <= WRAP_LENGTH) {
+        line = candidate;
+      } else {
+        if (line) lines.push(line);
+        line = chunk;
+      }
+    }
+  }
+
+  if (line) lines.push(line);
+  return lines;
+}
+
+function fontScaleForLength(length: number): number {
+  if (length <= FULL_SIZE_LENGTH) return 1;
+  if (length >= WRAP_LENGTH) return MINIMUM_SCALE;
+
+  const progress = (length - FULL_SIZE_LENGTH) / (WRAP_LENGTH - FULL_SIZE_LENGTH);
+  return 1 - progress * (1 - MINIMUM_SCALE);
 }
 
 export function FittedChromeTitle({
   text,
   textStyle,
   style,
-  minimumFontScale = 0.5,
   maxStarSize,
   starGap = 6,
-  lineOverlap = -10,
 }: FittedChromeTitleProps) {
-  const lines = splitMidpoint(text);
-  const titleFontSize = extractFontSize(textStyle);
-  // Italic Fraunces caps sit visually below the geometric line-box center
-  // — the ascender + slant pull the bbox up further than the descender
-  // pulls it down. To land the chrome star on the optical midline of the
-  // caps, shift it down by ~12% of the *title's* fontSize (so 74pt title
-  // gets ~9pt, 52pt title gets ~6pt). Fall back to a star-size scale if
-  // the text style doesn't expose a fontSize.
-  const starMarginTop = titleFontSize
-    ? titleFontSize * 0.12
-    : maxStarSize * 0.18;
+  const lines = wrapTitle(text);
+  const flattenedTextStyle = StyleSheet.flatten(textStyle);
 
   return (
     <View style={[styles.root, style]}>
       {lines.map((line, index) => {
-        const hasAccent = index === lines.length - 1;
+        const isFinalLine = index === lines.length - 1;
+        // The final line shares horizontal space with the chrome star, so
+        // include it in the same character budget as the title text.
+        const effectiveLength = line.length + (isFinalLine ? 2 : 0);
+        const scale = fontScaleForLength(effectiveLength);
+        const scaledTextStyle: TextStyle = {
+          fontSize:
+            typeof flattenedTextStyle.fontSize === "number"
+              ? flattenedTextStyle.fontSize * scale
+              : undefined,
+          lineHeight:
+            typeof flattenedTextStyle.lineHeight === "number"
+              ? flattenedTextStyle.lineHeight * scale
+              : undefined,
+          letterSpacing:
+            typeof flattenedTextStyle.letterSpacing === "number"
+              ? flattenedTextStyle.letterSpacing * scale
+              : undefined,
+        };
         return (
-          <View
-            key={`${index}-${line}`}
-            style={[styles.line, index > 0 ? { marginTop: lineOverlap } : null]}
-          >
+          <View key={`${index}-${line}`} style={styles.line}>
             <Text
-              style={[textStyle, styles.lineText]}
+              style={[textStyle, styles.lineText, scaledTextStyle]}
               numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={minimumFontScale}
             >
               {line}
             </Text>
-            {hasAccent ? (
+            {isFinalLine ? (
               <ChromeText
                 glyph="★"
                 size={maxStarSize}
-                style={[
-                  styles.accent,
-                  { marginLeft: starGap, marginTop: starMarginTop },
-                ]}
+                style={[styles.accent, { marginLeft: starGap }]}
               />
             ) : null}
           </View>
@@ -114,18 +111,16 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
   line: {
+    width: "100%",
     maxWidth: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     overflow: "visible",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
   },
   lineText: {
     flexShrink: 1,
     minWidth: 0,
-    width: "100%",
   },
   accent: {
     flexShrink: 0,

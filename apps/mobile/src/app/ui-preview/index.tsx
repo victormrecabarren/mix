@@ -209,9 +209,7 @@ export default function V1ArchiveHome() {
           />
 
           <HeroRoundCard
-            prompt={ACTIVE.prompt}
-            descriptor={ACTIVE.descriptor}
-            phaseLabel={ACTIVE.phase}
+            roundName={ACTIVE.prompt}
             ctaLabel={`${ACTIVE.submitted} picks in · tap to vote →`}
             status="live"
             imageKey={ACTIVE.imageKey}

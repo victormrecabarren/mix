@@ -1,5 +1,5 @@
-// Big "Live round · vote open" editorial card with prompt, descriptor,
-// phase countdown, optional live dot badge, and CTA. The image fills
+// Big active-round editorial card with the round name, optional live dot
+// badge, and CTA. The image fills
 // a 16:10 tile with a top-anchored cover-fit crop matching the preview.
 
 import { Image } from "expo-image";
@@ -29,9 +29,7 @@ export type HeroStatus =
   | "results";
 
 export type HeroRoundCardProps = {
-  prompt: string;
-  descriptor?: string;
-  phaseLabel: string;
+  roundName: string;
   ctaLabel?: string;
   status?: HeroStatus;
   imageKey?: string;
@@ -56,9 +54,7 @@ function showsLiveDot(status: HeroStatus | undefined): boolean {
 }
 
 export function HeroRoundCard({
-  prompt,
-  descriptor,
-  phaseLabel,
+  roundName,
   ctaLabel,
   status = "live",
   imageKey,
@@ -82,13 +78,9 @@ export function HeroRoundCard({
     </View>
   ) : null;
 
-  // Caption + descriptor are no longer painted on the home page (the round
-  // prompt now renders below the card as its own halo'd headline). They
-  // remain in props for callers that still want them surfaced (e.g. the
-  // ui-preview playground); silence the lint warnings here.
+  // The live badge encodes the active state. Keep the richer status caption
+  // available for a future card variant without painting redundant copy.
   void caption;
-  void prompt;
-  void descriptor;
 
   return (
     <View style={style}>
@@ -108,7 +100,7 @@ export function HeroRoundCard({
             </View>
           ) : null}
           <View style={styles.imageFooter} pointerEvents="none">
-            <Text style={styles.phase}>{phaseLabel.toUpperCase()}</Text>
+            <Text style={styles.roundName}>{roundName.toUpperCase()}</Text>
             {ctaLabel ? <Text style={styles.cta}>{ctaLabel}</Text> : null}
           </View>
         </Pressable>
@@ -168,7 +160,7 @@ const styles = StyleSheet.create({
     right: 16,
     alignItems: "center",
   },
-  phase: {
+  roundName: {
     fontFamily: THEME.fonts.monoBold,
     fontSize: 10,
     letterSpacing: 1.6,

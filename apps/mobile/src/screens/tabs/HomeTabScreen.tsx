@@ -50,7 +50,7 @@ import { PlaylistRail } from '@/ui/cards/PlaylistRail';
 import { useTabBarBottomInset } from '@/ui/hooks/useTabBarBottomInset';
 import { THEME } from '@/ui/theme';
 
-import { derivePhase, formatPhaseCountdown } from '@/lib/utils/phase';
+import { derivePhase } from '@/lib/utils/phase';
 import { roundCoverKey } from '@/lib/utils/coverKey';
 
 const HOME_HERO_IMAGE_KEY = 'disco-balloon-hero';
@@ -98,7 +98,7 @@ function useZoomCooldown() {
 export function HomeTabScreen() {
   const router = useRouter();
   const { supabaseUserId } = useSession();
-  const { activeLeagueId, loading: leagueLoading } = useLeagueContext();
+  const { activeLeagueId, activeLeague, loading: leagueLoading } = useLeagueContext();
   const bottomInset = useTabBarBottomInset();
   const armAndPush = useZoomCooldown();
 
@@ -119,6 +119,7 @@ export function HomeTabScreen() {
   return (
     <HomeTabContent
       leagueId={activeLeagueId}
+      leagueName={activeLeague?.name}
       userId={supabaseUserId}
       router={router}
       bottomInset={bottomInset}
@@ -131,12 +132,14 @@ export function HomeTabScreen() {
 // actually an active league. Keeps hook count stable per render.
 function HomeTabContent({
   leagueId,
+  leagueName,
   userId,
   router,
   bottomInset,
   armAndPush,
 }: {
   leagueId: string;
+  leagueName?: string;
   userId: string | null;
   router: ReturnType<typeof useRouter>;
   bottomInset: number;
@@ -271,12 +274,8 @@ function HomeTabContent({
   const hero = useMemo(() => {
     if (!round) return null;
     const phase = derivePhase(round);
-    const phaseLabel = formatPhaseCountdown(round);
     const status = phaseToHeroStatus(phase);
     const submittedCount = submissions.length;
-    const descriptor = round.seasons?.name
-      ? `Round ${String(round.round_number).padStart(2, '0')} · ${round.seasons.name}`
-      : `Round ${String(round.round_number).padStart(2, '0')}`;
     const ctaLabel =
       phase === 'voting' || phase === 'submissions'
         ? `${submittedCount} picks in · tap to ${phase === 'voting' ? 'vote' : 'submit'} →`
@@ -286,8 +285,6 @@ function HomeTabContent({
     return {
       id: round.id,
       prompt: round.prompt,
-      descriptor,
-      phaseLabel,
       status,
       ctaLabel,
       imageKey: HOME_HERO_IMAGE_KEY,
@@ -380,9 +377,7 @@ function HomeTabContent({
           {hero ? (
             <>
               <HeroRoundCard
-                prompt={hero.prompt}
-                descriptor={hero.descriptor}
-                phaseLabel={hero.phaseLabel}
+                roundName={hero.prompt}
                 ctaLabel={hero.ctaLabel}
                 status={hero.status}
                 imageKey={hero.imageKey}
@@ -406,16 +401,13 @@ function HomeTabContent({
                   "dripping" into the headline. */}
               <View style={styles.tether} />
 
-              {/* Round title block — italic Fraunces headline + chrome ★, set
-                  against a dual-layer radial halo. Sits directly below the
-                  active card, matching the Bubblegum home spec. */}
+              {/* League title block — the active league anchors the home
+                  surface, while the round name stays on the active card. */}
               <View style={styles.roundTitleBlock}>
-                <Text style={styles.roundTitleTagline}>this sounds like</Text>
                 <HaloText style={styles.roundTitleHaloWrap}>
                   <FittedChromeTitle
-                    text={hero.prompt.toUpperCase()}
+                    text={(league?.name ?? leagueName ?? 'MIX').toUpperCase()}
                     textStyle={styles.roundTitleText}
-                    minimumFontScale={0.58}
                     maxStarSize={32}
                   />
                 </HaloText>
@@ -588,7 +580,7 @@ const styles = StyleSheet.create({
     color: THEME.ink,
   },
 
-  // Round title block below the active hero card.
+  // League title block below the active hero card.
   roundTitleBlock: {
     alignItems: 'center',
     marginTop: 8,
@@ -596,13 +588,6 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 22,
     overflow: 'visible',
-  },
-  roundTitleTagline: {
-    fontFamily: THEME.fonts.serifItalic,
-    fontSize: 17,
-    color: THEME.ink,
-    // Raise above HaloText's spill so the blur doesn't capture this label.
-    zIndex: 2,
   },
   roundTitleHaloWrap: {
     flexDirection: 'row',
@@ -615,9 +600,9 @@ const styles = StyleSheet.create({
   },
   roundTitleText: {
     fontFamily: THEME.fonts.serifBoldItalic,
-    fontSize: 52,
-    lineHeight: 56,
-    letterSpacing: -2.2,
+    fontSize: 48,
+    lineHeight: 52,
+    letterSpacing: -2,
     color: THEME.ink,
     textAlign: 'center',
   },

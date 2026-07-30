@@ -2470,7 +2470,6 @@ function SubmissionsHero({
         <FittedChromeTitle
           text={round.prompt.toUpperCase()}
           textStyle={styles.heroTitle}
-          minimumFontScale={0.5}
           maxStarSize={44}
         />
       </HaloText>
